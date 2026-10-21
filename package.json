@@ -1,0 +1,45 @@
+{
+  "name": "restaurant-management",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && electron-builder",
+    "build:vite": "vite build",
+    "test:db": "electron test/db_test.js",
+    "test:auth": "electron test/auth_dashboard_test.js",
+    "test:catalog": "electron test/catalog_test.js",
+    "test:pos": "electron test/pos_tables_test.js",
+    "test:kitchen": "electron test/kitchen_test.js",
+    "test:inventory": "electron test/inventory_recipes_test.js",
+    "test:staff": "electron test/shifts_staff_test.js",
+    "test:crm": "electron test/crm_reservations_test.js",
+    "test:delivery": "electron test/delivery_dispatch_test.js",
+    "test:reports": "electron test/reports_settings_test.js",
+    "debug:order": "electron test/debug_create_order.js",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "lucide-react": "^0.475.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.20",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^5.1.6",
+    "vite-plugin-electron": "^0.28.6",
+    "vite-plugin-electron-renderer": "^0.14.5"
+  },
+  "main": "dist-electron/main.js"
+}

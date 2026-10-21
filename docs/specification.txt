@@ -1,0 +1,1381 @@
+RESTAURANT / FAST FOOD MANAGEMENT SOFTWAREComplete Software Development Requirements & Functional Specification
+
+Developer Reference Document | Version 2.0 | October 2026
+
+Purpose: This document defines the functional, workflow, data, calculation, permission, reporting, and operational requirements for a complete Restaurant / Fast Food POS and Management System. It is intended to be used by UI/UX designers, frontend developers, backend developers, database developers, QA testers, and project managers.
+
+1. System Overview
+
+The application shall be a modular, role-based restaurant management platform supporting dine-in, takeaway, delivery, kitchen operations, inventory, recipes, purchases, vendors, expenses, staff, accounting, customers, reservations, promotions, reporting, and multi-branch operations.
+
+1.1 Core Operating Principle
+
+Every sale must create a traceable order and payment record.
+
+Confirmed sales must update relevant inventory according to recipe/stock rules.
+
+Kitchen orders must be visible to authorized kitchen users in real time.
+
+Bills and receipts must be printable and re-printable according to permissions.
+
+Returns/refunds must reverse financial and inventory effects according to configured rules.
+
+All sensitive actions must be logged with user, timestamp, branch, and action.
+
+The system must support configurable tax, discount, service charge, delivery charge, currency, and receipt settings.
+
+The system should be usable on desktop POS screens and responsive on tablets where required.
+
+2. User Roles & Permissions
+
+Role
+
+Typical Access
+
+Restricted Actions
+
+Super Admin
+
+All branches, all modules, system configuration
+
+None except protected system actions
+
+Branch Admin / Owner
+
+Full branch management, reports, inventory, staff
+
+Global/system-level configuration
+
+Manager
+
+Orders, tables, inventory, staff, reports, expenses
+
+Critical configuration and user deletion
+
+Cashier
+
+POS, orders, payments, customer lookup
+
+Inventory adjustment, purchase approval, reports beyond assigned scope
+
+Waiter
+
+Tables, dine-in orders, customer lookup
+
+Payments/refunds unless granted
+
+Kitchen Staff
+
+Kitchen display, preparation statuses
+
+Sales/payment/accounting
+
+Inventory Officer
+
+Inventory, purchases, vendors, stock adjustments
+
+POS cash operations
+
+Accountant
+
+Expenses, payments, settlements, financial reports
+
+Menu/recipe configuration unless granted
+
+Delivery Rider
+
+Assigned deliveries, delivery status, customer delivery details
+
+Pricing/configuration
+
+Reception / Reservation
+
+Reservations, customer management, tables
+
+Financial/admin functions
+
+Permissions must be configurable per role and, where needed, per individual user.
+
+3. Dashboard
+
+Date/branch selector with today, yesterday, week, month, custom range.
+
+Today's gross sales, discounts, taxes, service charges, delivery charges, refunds and net sales.
+
+Order count by Dine-In, Takeaway and Delivery.
+
+Pending kitchen orders and delayed orders.
+
+Completed/cancelled orders.
+
+Total expenses and estimated net profit.
+
+Low-stock and out-of-stock alerts.
+
+Top-selling products and categories.
+
+Hourly sales chart and sales trend.
+
+Payment-method summary: cash, card, bank transfer, wallet/online payment.
+
+Quick actions: New Order, Add Product, Purchase, Expense, Customer, Reservation.
+
+Dashboard widgets must respect user permissions and branch scope.
+
+4. POS / New Order
+
+4.1 Order Creation
+
+Start a new order and select order type: Dine-In, Takeaway, Delivery.
+
+For Dine-In, select floor and table; show current table status.
+
+Search products by name, SKU, barcode, category or shortcut.
+
+Display product image, name, price, availability and optional preparation time.
+
+Support product variations such as Small/Regular/Large and different prices.
+
+Support add-ons/extras with optional quantity and price.
+
+Allow item-level notes and order-level notes.
+
+Allow item quantity increase/decrease and removal.
+
+Show subtotal, item discounts, order discount, tax, service charge, delivery charge and grand total.
+
+Allow customer selection or quick customer creation.
+
+Allow order hold/save and recall.
+
+Allow order editing before final confirmation according to permissions.
+
+4.2 Payment
+
+Support Cash, Card, Bank Transfer, Mobile Wallet/Online and configurable methods.
+
+Allow split payment by method if enabled.
+
+Calculate cash received and change.
+
+Record payment reference for card/bank/online transactions where applicable.
+
+Prevent completion if required payment amount is missing.
+
+Create payment record linked to order and cashier.
+
+4.3 Order Status
+
+Status
+
+Meaning
+
+Draft/Held
+
+Order saved but not finalized
+
+Confirmed
+
+Order accepted and sent to relevant workflow
+
+Preparing
+
+Kitchen has started preparation
+
+Ready
+
+Kitchen has completed preparation
+
+Served/Collected
+
+Customer received food
+
+Out for Delivery
+
+Delivery order assigned/dispatched
+
+Delivered
+
+Delivery completed
+
+Cancelled
+
+Order cancelled with reason
+
+Refunded/Returned
+
+Financial reversal completed
+
+5. Table & Floor Management
+
+Create unlimited floors/sections.
+
+Create, edit, move, rename and deactivate tables.
+
+Configure table capacity.
+
+Visual table map with Available, Occupied, Reserved, Cleaning and Out-of-Service states.
+
+Clicking an occupied table opens its current order.
+
+Open new order directly from an available table.
+
+Merge tables for large groups.
+
+Transfer an order from one table to another.
+
+Split/merge bills where permitted.
+
+Show table duration / occupancy time.
+
+Optional table reservation linkage.
+
+6. Menu & Product Management
+
+6.1 Categories
+
+Create unlimited categories/subcategories.
+
+Category name, image/icon, display order and active status.
+
+Optional POS and online-menu visibility settings.
+
+6.2 Products
+
+Product name, SKU, barcode, category, description and image.
+
+Base selling price and optional price by order type.
+
+Tax configuration.
+
+Preparation time.
+
+Available/unavailable toggle.
+
+Optional minimum/maximum quantity.
+
+Optional recipe link.
+
+Optional add-ons/modifiers.
+
+Product-level discount eligibility.
+
+Featured/best-seller flag.
+
+Archive rather than hard-delete products that have transaction history.
+
+6.3 Variations / Add-ons
+
+Create size/variation groups.
+
+Create extras/add-ons such as cheese, sauce, toppings, drinks.
+
+Set price and optional stock/ingredient impact.
+
+Allow required or optional modifiers.
+
+Allow maximum selections where applicable.
+
+6.4 Deals / Combos
+
+Create combo containing multiple products.
+
+Configure fixed combo price.
+
+Support selectable choices within a combo.
+
+Track component stock usage where recipes are configured.
+
+Set active date/time and availability.
+
+7. Kitchen Display System (KDS)
+
+Real-time queue of confirmed kitchen orders.
+
+Show order number, table/customer, order type, items, quantities, modifiers and notes.
+
+Statuses: New, Accepted, Preparing, Ready, Completed/Served.
+
+Separate kitchen stations if configured: Grill, Pizza, Drinks, Packing, etc.
+
+Assign items to stations automatically by product configuration.
+
+Show elapsed preparation time.
+
+Highlight delayed orders based on configurable thresholds.
+
+Allow kitchen staff to mark item/order ready.
+
+When all required items are ready, order becomes Ready.
+
+POS must receive kitchen status updates in real time.
+
+Optional kitchen ticket printing.
+
+8. Delivery Management
+
+Create customer delivery profile with phone and address.
+
+Delivery zones and configurable delivery charges.
+
+Minimum order amount by zone if required.
+
+Assign order to a rider.
+
+Rider status: Available, Assigned, Out for Delivery, Delivered, Offline.
+
+Delivery status tracking.
+
+Record cash collected by rider.
+
+Record failed/cancelled delivery reason.
+
+Rider settlement report.
+
+Optional customer notification when order status changes.
+
+9. Customer Management & Loyalty
+
+Customer profile: name, phone, address(es), notes.
+
+Order history with invoice/order details.
+
+Total orders, total spending, average order value and last order date.
+
+Favourite products/categories.
+
+Customer tags such as VIP, Regular, Corporate.
+
+Loyalty points configuration and transaction history.
+
+Redeem points subject to configurable rules.
+
+Customer-specific discounts/promotions.
+
+Duplicate phone/customer prevention or merge workflow.
+
+10. Inventory / Stock Management
+
+10.1 Stock Master
+
+Ingredient/item name, SKU, unit, category, opening stock, minimum level and reorder level.
+
+Units: kg, g, litre, ml, piece, pack, box, etc.
+
+Optional conversion rules, e.g. 1 box = 12 pieces.
+
+Cost price and average cost tracking.
+
+Current stock, reserved stock and available stock.
+
+10.2 Stock Transactions
+
+Stock In from purchases.
+
+Stock Out for approved operational adjustments.
+
+Automatic deduction from recipes when enabled.
+
+Wastage, damage and expiry transactions.
+
+Stock transfer between branches/stores.
+
+Manual stock adjustment with reason and approval.
+
+Full stock movement history.
+
+Low-stock and out-of-stock alerts.
+
+11. Recipe / Food Cost Management
+
+Create recipe for each sellable food item.
+
+Add ingredients and quantity required per serving.
+
+Support preparation loss/wastage percentage where needed.
+
+Calculate ingredient cost from current/selected cost basis.
+
+Calculate food cost per serving.
+
+Calculate selling price, gross margin and food-cost percentage.
+
+When an order is finalized, deduct configured ingredient quantities.
+
+Recipe changes must be versioned or logged.
+
+Allow recipe activation/deactivation without deleting historical data.
+
+Core calculation examples:
+
+Food Cost = Sum(Ingredient Quantity × Ingredient Unit Cost)
+
+Gross Profit per Item = Selling Price − Food Cost − applicable variable costs
+
+Food Cost % = (Food Cost ÷ Selling Price) × 100
+
+12. Purchases & Vendor Management
+
+Vendor master: company/name, contact, address, tax/reference information, payment terms.
+
+Create purchase order if required.
+
+Create purchase invoice/GRN when goods are received.
+
+Record item, quantity, unit, purchase rate, discount, tax and total.
+
+Partial receiving support.
+
+Purchase return by item and quantity.
+
+Vendor outstanding balance.
+
+Vendor payment recording.
+
+Purchase history and vendor statement.
+
+Inventory must increase only when goods are received/posted according to workflow.
+
+13. Expense Management
+
+Expense categories: rent, utilities, salary, maintenance, marketing, transport, miscellaneous.
+
+Expense date, branch, category, amount, payment method, vendor/payee, note and attachment/reference.
+
+Recurring expense option.
+
+Approval workflow for expenses above configurable amount.
+
+Edit/cancel with audit trail.
+
+Expense report by date, category, branch and payment method.
+
+14. Billing, Invoice & Receipt
+
+Generate unique order/invoice number.
+
+Customer receipt with restaurant name/logo/contact.
+
+Thermal printer format (commonly 58mm/80mm) and A4 invoice option.
+
+Show items, quantities, unit prices, discounts, tax, service charge, delivery charge, total and payment method.
+
+Print/reprint subject to permission.
+
+Email/WhatsApp/share-ready invoice option if integrated.
+
+Credit/outstanding billing only if enabled.
+
+Refund/return must reference original order.
+
+15. Returns, Refunds & Cancellations
+
+Item-level return with quantity and reason.
+
+Full order cancellation with reason.
+
+Refund by original or allowed payment method.
+
+Returned inventory behavior configurable: Restock / Do Not Restock.
+
+Cancelled before kitchen acceptance should follow one workflow; cancellation after preparation should require elevated permission.
+
+All refunds must be logged with user, date/time, amount and reason.
+
+Reports must show gross sales, returns/refunds and net sales separately.
+
+16. Staff & Employee Management
+
+Employee profile, role, branch, contact and active status.
+
+User login credentials linked to employee profile.
+
+Role and permission assignment.
+
+Attendance: present, absent, late, leave.
+
+Shift assignment and shift timing.
+
+Salary/basic pay information if payroll is included.
+
+Commission configuration if applicable.
+
+Staff sales/performance reports.
+
+Disable user without deleting historical transactions.
+
+17. Cash Drawer & Financial Operations
+
+Opening cash entry for each cashier shift.
+
+Cash in / cash out with reason.
+
+All cash sales automatically reflected in drawer.
+
+Cash refunds reflected in drawer.
+
+End-of-shift cash count.
+
+Expected cash vs counted cash and variance.
+
+Cashier settlement.
+
+Manager approval for variance where configured.
+
+Separate totals for cash, card, bank and online payments.
+
+18. Reservations
+
+Create reservation with customer, date, time, guests, table and notes.
+
+Reservation statuses: Pending, Confirmed, Seated, Completed, Cancelled, No-show.
+
+Prevent double-booking based on table/time rules.
+
+Convert reservation into active dine-in order.
+
+Reservation calendar/list view.
+
+Optional deposit recording.
+
+19. Discounts, Coupons & Promotions
+
+Percentage discount.
+
+Fixed amount discount.
+
+Product/category-specific discount.
+
+Buy X Get Y.
+
+Combo/deal pricing.
+
+Happy-hour/time-based pricing.
+
+Coupon code with usage limits.
+
+Customer-segment offers.
+
+Minimum order condition.
+
+Maximum discount cap.
+
+Start/end date and time.
+
+Branch-specific promotion.
+
+Permission required for manual override discounts.
+
+20. Multi-Branch Management
+
+Create unlimited branches.
+
+Separate branch settings, users, tables, menu availability and inventory.
+
+Branch-wise sales, purchases, expenses and profit.
+
+Stock transfer between branches.
+
+Central product/menu master with branch-level overrides.
+
+Head-office consolidated reporting.
+
+User can be assigned to one or multiple branches according to permission.
+
+21. Reports & Analytics
+
+Report
+
+Required Filters / Details
+
+Sales Report
+
+Date, branch, order type, cashier, payment method
+
+Product Sales
+
+Product, category, quantity, revenue
+
+Category Sales
+
+Category-wise quantity and revenue
+
+Profit Report
+
+Sales, food cost, expenses, estimated net profit
+
+Food Cost Report
+
+Recipe cost, selling price, food-cost %
+
+Inventory Report
+
+Current stock, valuation, low stock, movement
+
+Purchase Report
+
+Vendor, item, date, quantity, amount
+
+Vendor Statement
+
+Invoices, returns, payments, outstanding
+
+Expense Report
+
+Category, branch, date, amount
+
+Cashier Report
+
+Orders, cash, card, refunds, variance
+
+Staff Report
+
+Sales/orders/attendance by employee
+
+Delivery Report
+
+Rider, orders, delivery status, cash collected
+
+Customer Report
+
+Orders, spending, loyalty, last order
+
+Refund Report
+
+Returned items, reasons, amount, user
+
+Reservation Report
+
+Bookings, completed, cancelled, no-show
+
+Branch Comparison
+
+Sales, profit, orders, costs by branch
+
+Reports must support on-screen viewing, print, and export to PDF/Excel/CSV where technically appropriate.
+
+22. System Settings & Customization
+
+Restaurant name and legal/business name.
+
+Logo upload.
+
+Branch address, phone, email and social/contact details.
+
+Currency and number formatting.
+
+Tax settings.
+
+Service charge settings.
+
+Delivery charge settings.
+
+Receipt/invoice template settings.
+
+Printer configuration.
+
+Kitchen printer/KDS configuration.
+
+Order numbering rules.
+
+Color theme selection for software UI.
+
+Date/time format and timezone.
+
+Notification settings.
+
+Backup settings.
+
+User/role/permission settings.
+
+Menu and order workflow settings.
+
+23. Notifications & Alerts
+
+Low stock alert.
+
+Out-of-stock product alert.
+
+New order alert.
+
+Kitchen delay alert.
+
+New online/delivery order alert.
+
+Reservation reminder.
+
+Large discount/refund alert for managers.
+
+Expense approval alert.
+
+Purchase approval/receiving alert.
+
+Configurable in-app notifications; optional email/WhatsApp/SMS integration.
+
+24. Audit Log & Security
+
+Record login/logout.
+
+Record create/update/delete/archive actions.
+
+Record price changes.
+
+Record discount overrides.
+
+Record refunds/cancellations.
+
+Record stock adjustments.
+
+Record permission changes.
+
+Record cash drawer actions.
+
+Audit entry must include user, branch, timestamp, action and relevant record/reference.
+
+Sensitive data must not be exposed to users without permission.
+
+25. Recommended Core Database Entities
+
+users, roles, permissions, role_permissions, user_branches
+
+branches, floors, tables
+
+categories, products, product_variations, modifiers, combos
+
+recipes, recipe_items, ingredients, units, unit_conversions
+
+customers, customer_addresses, loyalty_transactions
+
+orders, order_items, order_item_modifiers, order_status_history
+
+payments, refunds, returns
+
+kitchen_tickets, kitchen_ticket_items, kitchen_stations
+
+vendors, purchase_orders, purchases, purchase_items, vendor_payments
+
+stock_transactions, stock_adjustments, stock_transfers, wastage
+
+expenses, expense_categories
+
+employees, attendance, shifts, salaries/commissions if enabled
+
+reservations
+
+promotions, coupons
+
+cash_sessions, cash_movements, cashier_settlements
+
+notifications, audit_logs, system_settings
+
+26. Critical End-to-End Workflows
+
+26.1 Dine-In
+
+User opens POS and selects Dine-In.
+
+Select available table.
+
+Add customer optionally.
+
+Add products, variations, modifiers and notes.
+
+Confirm order.
+
+Kitchen receives relevant ticket.
+
+Kitchen changes status through preparation to Ready.
+
+Waiter serves order.
+
+POS calculates final bill.
+
+Customer pays.
+
+Payment is recorded and receipt printed.
+
+Inventory/recipe consumption is posted according to configured posting point.
+
+Table returns to Available.
+
+26.2 Takeaway
+
+Create Takeaway order.
+
+Add items/customer optionally.
+
+Confirm order and send to kitchen.
+
+Kitchen prepares and marks Ready.
+
+Cashier collects payment.
+
+Receipt prints.
+
+Order is marked Collected.
+
+26.3 Delivery
+
+Create Delivery order and customer/address.
+
+Calculate delivery charge by configured zone/rule.
+
+Confirm order.
+
+Kitchen prepares.
+
+Assign rider.
+
+Rider changes to Out for Delivery.
+
+Rider marks Delivered and records collection if cash.
+
+Payment/settlement is finalized.
+
+26.4 Purchase to Inventory
+
+Create purchase/order.
+
+Receive goods.
+
+Verify quantities and rates.
+
+Post purchase/GRN.
+
+Increase inventory.
+
+Create vendor payable/outstanding.
+
+Record payment when paid.
+
+26.5 Sale to Inventory
+
+Order is finalized according to configured stock-posting rule.
+
+System identifies product recipe.
+
+System calculates ingredient consumption.
+
+Create stock-out transactions.
+
+Update current stock.
+
+Trigger low-stock alert if threshold is crossed.
+
+27. Business Rules & Validation
+
+Do not allow negative stock unless explicitly enabled by administrator.
+
+Do not allow sale of inactive/out-of-stock products unless override permission exists.
+
+Do not allow payment completion with invalid or missing payment data.
+
+Discount above configured limit requires manager permission.
+
+Refund above configured limit requires manager/admin permission.
+
+Stock adjustment requires reason.
+
+Purchase return must reference purchase/received stock where possible.
+
+Deleted transactional records should generally be archived/voided rather than physically deleted.
+
+Price changes must preserve historical transaction prices.
+
+Historical invoices must not change when product master price changes.
+
+All branch-sensitive records must carry branch_id.
+
+All important monetary operations must use decimal-safe financial calculations, not floating-point arithmetic.
+
+28. UI/UX Requirements
+
+Clean professional restaurant POS interface optimized for fast order entry.
+
+Large touch-friendly product/category buttons.
+
+Keyboard shortcuts for frequent cashier operations.
+
+Search must be fast and forgiving.
+
+Use clear status colors consistently but ensure accessibility and text labels.
+
+Desktop-first POS layout with responsive support.
+
+Confirm destructive actions such as delete, cancel, refund and stock adjustment.
+
+Show success/error feedback immediately.
+
+Use pagination/filtering for large lists.
+
+Provide empty states and clear loading states.
+
+Do not expose unnecessary admin complexity to cashier/waiter screens.
+
+29. Non-Functional / Technical Requirements
+
+Role-based authentication and authorization.
+
+Secure password storage and session management.
+
+Database transactions for order/payment/stock operations.
+
+Automatic backups with configurable retention.
+
+API-based modular architecture recommended.
+
+Real-time updates for kitchen/order status where possible.
+
+Scalable database indexing for orders, order_items, products, stock_transactions and payments.
+
+Audit logging for critical business actions.
+
+Error logging and monitoring.
+
+Export and backup functionality.
+
+The application should remain usable during temporary network interruptions if an offline-capable POS architecture is selected; sync conflicts must be handled explicitly.
+
+All monetary values must preserve currency precision.
+
+System timezone should be configurable but stored timestamps should be unambiguous.
+
+30. Suggested API / Service Areas
+
+Authentication & users API
+
+Branch & settings API
+
+Products/menu API
+
+POS/order API
+
+Kitchen API
+
+Tables/reservation API
+
+Customer/loyalty API
+
+Inventory/recipe API
+
+Purchase/vendor API
+
+Expense/accounting API
+
+Payment/refund API
+
+Delivery/rider API
+
+Reports/analytics API
+
+Notification API
+
+Audit/log API
+
+31. QA / Testing Checklist
+
+Create order for every order type.
+
+Test product variations and modifiers.
+
+Test discounts, taxes, service charge and delivery charge.
+
+Test split payments.
+
+Test cancellation before and after kitchen acceptance.
+
+Test item-level and full-order returns.
+
+Test recipe stock deduction.
+
+Test purchase receiving and purchase return.
+
+Test low-stock alerts.
+
+Test cash drawer opening/closing and variance.
+
+Test table merge/transfer.
+
+Test reservation conflicts.
+
+Test user permissions with every role.
+
+Test multi-branch data isolation.
+
+Test reports against known transactions.
+
+Test printer/receipt output.
+
+Test backup and restore.
+
+Test concurrent users and simultaneous orders.
+
+Test audit logs for all critical actions.
+
+32. Recommended Development Phases
+
+Phase
+
+Scope
+
+Phase 1 – Core POS
+
+Login, roles, branches, products, categories, POS, payments, receipts, tables
+
+Phase 2 – Kitchen
+
+KDS, kitchen stations, order status, ticket printing
+
+Phase 3 – Inventory
+
+Ingredients, recipes, stock, wastage, adjustments
+
+Phase 4 – Procurement
+
+Vendors, purchases, receiving, returns, vendor payments
+
+Phase 5 – Customers & Delivery
+
+Customer CRM, delivery, riders, loyalty
+
+Phase 6 – Finance & Staff
+
+Expenses, cash drawer, settlements, staff/attendance
+
+Phase 7 – Reports
+
+Sales, profit, inventory, food cost, vendor, customer, branch reports
+
+Phase 8 – Advanced
+
+Advanced: Reservations, promotions, QR table ordering, self-service kiosk, online ordering, notifications, AI analytics
+
+33. Definition of Done / Acceptance Criteria
+
+Every module has create, view, edit, archive/delete behavior defined.
+
+All workflows work end-to-end without manual database intervention.
+
+Permissions prevent unauthorized actions.
+
+Orders, payments, inventory and audit records remain consistent after success/failure.
+
+Reports reconcile with transactional data.
+
+Historical transactions remain immutable except through controlled correction/refund workflows.
+
+UI is responsive and usable at POS speed.
+
+Critical errors are handled without losing an order.
+
+Backup and restore are tested.
+
+QA signs off all critical workflows before production deployment.
+
+34. Optional Future Integrations
+
+QR table ordering — included in Version 2.0 implementation scope.
+
+Online ordering website.
+
+Customer mobile app.
+
+Food delivery platform integrations.
+
+WhatsApp Business notifications.
+
+SMS provider.
+
+Email service.
+
+Payment gateway.
+
+Accounting software integration.
+
+Barcode scanner and cash drawer.
+
+Thermal/kitchen printers.
+
+Cloud analytics dashboard.
+
+AI forecasting and automated business recommendations.
+
+35. Developer Implementation Notes
+
+The developer should not treat this document as a flat list of screens. The system must be implemented around business entities and controlled workflows. For example, an order is not simply a printed bill: it connects the customer, table/order type, items, modifiers, kitchen status, payment, inventory consumption, cashier session, and audit trail. Similar relational consistency must be maintained for purchases, returns, stock and vendor balances.
+
+Before coding, the development team should convert this specification into: (1) database ERD, (2) role/permission matrix, (3) screen-by-screen UI wireframes, (4) API contract, (5) state-transition diagrams, (6) validation rules, and (7) QA test cases. Any business rule not explicitly decided by the owner should be made configurable rather than hard-coded where practical.
+
+37. Version 2.0 — QR Table Ordering & Self-Service Kiosk
+
+This section is an extension of the original specification and is part of the development scope. QR Table Ordering and Self-Service Kiosk are not separate systems; both must use the existing central menu, order, kitchen, payment, inventory, customer, reporting and audit architecture.
+
+37.1 QR Table Ordering
+
+Each active restaurant table can have a unique QR code linked to the correct branch, floor and table.
+
+The QR code must open a mobile-first web ordering page without requiring a customer app.
+
+Customer can browse categories/products, search, view product images, choose variations, add-ons and quantities, and enter item/order notes.
+
+Customer can place an order as a guest. Optional name/phone/customer login can be enabled by branch.
+
+Cart must calculate current product prices, discounts, tax, service charge and any configured charges.
+
+QR orders must carry order_source = QR and must store branch_id, table_id and QR session/reference.
+
+QR orders must appear in POS and KDS in real time and follow the same order-status workflow as normal dine-in orders.
+
+Admin can generate, preview, download, print, regenerate and deactivate individual or bulk table QR codes.
+
+QR codes must use secure non-guessable references and must not expose internal database IDs.
+
+Revoked, inactive or invalid QR codes must show a controlled error page rather than opening an order screen.
+
+System must support configurable payment timing: pay before kitchen confirmation, pay at table/counter, or another configured workflow.
+
+Multiple customers may order from the same table. The developer must implement the selected business rule: either separate linked orders or controlled table-session order merging.
+
+Duplicate QR submissions and browser/network retries must be protected through idempotency keys/session tokens.
+
+37.2 Self-Service Kiosk
+
+Kiosk is a touch-optimized customer ordering interface connected to the same central order engine.
+
+Support configurable order types such as Dine-In and Takeaway.
+
+Home screen: restaurant branding, categories, search, featured items, cart and clear navigation.
+
+Product screen: image, description, price, variations, modifiers/add-ons, quantity and notes.
+
+Cart screen: items, quantity controls, discount, tax, service charge and final total.
+
+Payment options must be configurable. Supported modes may include pay-at-counter, card/terminal, bank/online payment or integrated payment gateway.
+
+After confirmation, generate a unique order/token number and send the order to POS and KDS in real time.
+
+Display confirmation and, where configured, estimated preparation time and order status.
+
+Automatically clear the session and return to the home screen after configurable inactivity.
+
+Kiosk must run in locked full-screen kiosk mode and prevent access to the operating system or unrelated applications.
+
+Admin/operator can create a kiosk record, assign it to a branch/location, activate/deactivate it, put it in maintenance mode and view its health/online status.
+
+Kiosk requests must be idempotent so network retries cannot create duplicate orders or payments.
+
+If the backend is unavailable, the kiosk must clearly show offline/unavailable status and must never falsely show an order as confirmed.
+
+37.3 Unified Self-Ordering Workflow
+
+Customer scans a table QR or starts a kiosk session.
+
+System identifies the branch and, for QR, the linked table.
+
+System loads the active menu and availability.
+
+Customer selects products, variations, modifiers and notes.
+
+System calculates price, discounts, tax and charges.
+
+Customer reviews and confirms the cart.
+
+Payment is completed if the configured workflow requires pre-payment.
+
+Central order service creates the order and returns an order/token number.
+
+Order source is recorded as QR or KIOSK.
+
+Relevant items are routed to KDS/kitchen stations.
+
+Customer sees confirmation and order status.
+
+Kitchen prepares and updates status.
+
+POS/staff can monitor or manage the order according to permissions.
+
+Order is served/collected and finalized.
+
+Payment, inventory, customer, reporting and audit records are posted using the same rules as POS orders.
+
+37.4 QR & Kiosk Administration
+
+QR Management: table mapping, QR generation, preview, print, download, regeneration, deactivation and bulk generation.
+
+Kiosk Management: kiosk ID, branch, location, device name, status, maintenance mode, active menu, supported order types and payment configuration.
+
+Self-Ordering Settings: enable/disable QR, enable/disable kiosk, customer identification, staff approval, payment timing, ordering hours, timeout and unavailable-item behavior.
+
+Order Source values should be extensible: POS, QR, KIOSK, ONLINE, APP, DELIVERY_PLATFORM and future channels.
+
+Analytics should compare QR, kiosk and POS performance: order count, revenue, average order value, top products and peak ordering periods.
+
+Only authorized users can regenerate QR codes, disable kiosks, change self-ordering configuration or override self-service orders.
+
+37.5 Additional Database Entities
+
+table_qr_codes: id, branch_id, floor_id, table_id, public_token, status, generated_at, regenerated_at, revoked_at.
+
+qr_sessions: id, qr_code_id, branch_id, table_id, session_token, started_at, expires_at, status.
+
+kiosk_devices: id, branch_id, kiosk_code, name, location, status, last_seen_at, configuration.
+
+kiosk_sessions: id, kiosk_device_id, session_token, started_at, last_activity_at, expires_at, status.
+
+self_order_settings: branch_id, qr_enabled, kiosk_enabled, payment_mode, approval_mode, ordering_hours, session_timeout.
+
+orders must include an extensible order_source and source_reference field.
+
+37.6 Additional API / Service Requirements
+
+QR Code & QR Session API
+
+Self-Ordering Menu API
+
+Kiosk Device & Health API
+
+Kiosk Session API
+
+Unified Order Source API
+
+Self-Order Payment/Checkout API
+
+Real-Time Order Status API/WebSocket or equivalent
+
+QR/Kiosk Analytics API
+
+37.7 Permissions
+
+Super Admin / Owner: full QR and kiosk configuration.
+
+Branch Admin / Manager: manage QR codes, kiosk settings and self-order monitoring for assigned branches.
+
+Cashier: view/manage QR and kiosk orders according to assigned order permissions.
+
+Kitchen Staff: receive and process QR/Kiosk kitchen tickets only.
+
+Kiosk Operator: monitor kiosk device/session health and assist customers; no financial/configuration access unless granted.
+
+Customer: only access the public ordering flow.
+
+37.8 UI/UX Requirements
+
+QR ordering must be mobile-first, fast-loading and easy to use with one hand.
+
+Use large touch targets, persistent cart access, clear price visibility and minimal checkout steps.
+
+Kiosk should use large buttons, high-contrast text, clear back/home controls and persistent cart summary.
+
+Show product unavailable state clearly and prevent selection of unavailable options.
+
+Support restaurant branding, logo, colors, language and menu display settings.
+
+Show clear loading, success, payment failure, timeout and network error states.
+
+Kiosk must automatically reset to a clean home state after inactivity.
+
+37.9 Business Rules & Validation
+
+Every QR order must reference a valid active QR/table/branch context.
+
+Every kiosk order must reference a valid active kiosk and branch.
+
+Price and availability must be validated again at final order submission.
+
+QR/Kiosk orders must use the same tax, promotion, discount, recipe and inventory rules as POS orders.
+
+Staff edits, cancellations, refunds and overrides must follow existing permission rules and audit logging.
+
+If payment is mandatory before confirmation, failed/expired payment must not create a completed paid order.
+
+QR regeneration/revocation must not modify historical orders.
+
+Kiosk session data must be cleared on timeout/reset.
+
+37.10 QA & Acceptance Tests
+
+Valid QR opens the correct restaurant/table.
+
+Invalid, expired and revoked QR codes are rejected.
+
+Two customers can order from the same table according to the selected table-session rule.
+
+Duplicate taps, browser retries and network retries do not create duplicate orders.
+
+QR order reaches POS and the correct KDS station.
+
+QR payment success/failure/timeout behaves correctly.
+
+Kiosk supports every enabled order type.
+
+Kiosk session resets after inactivity.
+
+Kiosk offline state does not falsely confirm orders.
+
+Kiosk activation/deactivation and branch assignment work correctly.
+
+QR/Kiosk discounts, promotions, taxes, modifiers and inventory match POS calculations.
+
+QR/Kiosk orders appear correctly in sales, product, profit, customer and payment reports.
+
+Permissions prevent unauthorized QR/kiosk configuration.
+
+Audit logs capture configuration changes, order overrides, cancellations and refunds.
+
+38. Recommended Future Product Roadmap
+
+The following features are recommended for future versions after the core POS + QR + Kiosk system is stable. They should be designed as extensions of the same central architecture rather than separate applications.
+
+Customer Mobile App — ordering, loyalty, order history, saved addresses, offers and push notifications.
+
+Online Ordering Website — branded menu, delivery/takeaway ordering, customer accounts, coupons and online payments.
+
+Omnichannel Order Inbox — one screen for POS, QR, kiosk, website, mobile app and third-party delivery orders.
+
+Digital Payments — gateways, card terminals, wallets and automatic payment reconciliation.
+
+Advanced Loyalty/CRM — customer tiers, vouchers, referrals, targeted offers and customer segmentation.
+
+Marketing Automation — WhatsApp/SMS/email campaigns triggered by purchases, inactivity, loyalty and promotions.
+
+Smart Inventory — predicted reorder quantities, supplier lead-time analysis, expiry alerts and wastage insights.
+
+AI Forecasting — demand prediction, sales forecasting, staffing suggestions and inventory planning.
+
+AI Business Assistant — natural-language questions such as today's sales, best-selling item, low-stock risk and branch comparison.
+
+Kitchen Optimization — station workload balancing, preparation-time analytics and intelligent ticket prioritization.
+
+Franchise Mode — head-office controls, branch onboarding, standardized menus, permissions and franchise reporting.
+
+Delivery Platform Integrations — synchronize orders, menus, status and settlement data with supported delivery providers.
+
+Accounting Integration — automatic posting of sales, purchases, expenses, receivables/payables and settlements.
+
+Multilingual & Accessibility — Urdu/English and other configurable languages, larger text and accessibility options.
+
+Customer Feedback — digital receipts with rating/feedback links and issue tracking.
+
+Advanced Security — MFA, device management, rate limiting, encrypted secrets, backup verification and disaster recovery.
+
+Offline-First Expansion — local POS/KDS operation with queued synchronization and explicit conflict resolution.
+
+API/Integration Marketplace — documented APIs/webhooks for CRM, accounting, payments, messaging and external services.
+
+39. Development Priority & Start-Work Instructions
+
+Priority 1: Build the central order engine and ensure POS, QR and Kiosk all create the same canonical order structure.
+
+Priority 2: Implement QR table mapping, secure public QR tokens and customer mobile ordering.
+
+Priority 3: Implement Kiosk device/session management and touch-first customer UI.
+
+Priority 4: Connect both channels to KDS, POS, payments, inventory, customer records, notifications and reports.
+
+Priority 5: Complete permissions, audit logs, idempotency, error recovery and offline/network handling.
+
+Priority 6: Complete QA using the Version 2.0 acceptance checklist before production rollout.
+
+Before coding, developer must produce: ERD updates, role/permission matrix updates, screen-by-screen wireframes for QR and kiosk, API contracts, state-transition diagrams, payment flow, error/offline flows and QA test cases.
+
+Business decisions that are not fixed by the owner must be configurable rather than hard-coded.
