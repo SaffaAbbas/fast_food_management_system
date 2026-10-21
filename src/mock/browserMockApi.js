@@ -30,7 +30,16 @@ export function initBrowserMockApi() {
   console.log('[Browser Mock] Initializing in-browser mock bridge for Vercel/Web environment...')
 
   // Initialize or fetch state from localStorage
-  let currentUser = getStorage('current_user', DUMMY.INITIAL_USERS[0])
+  const rawUser = getStorage('current_user', DUMMY.INITIAL_USERS[0])
+  let currentUser = rawUser
+    ? {
+        ...rawUser,
+        roleCode: rawUser.roleCode || rawUser.role_code || 'super_admin',
+        roleName: rawUser.roleName || rawUser.role_name || 'Super Administrator',
+        permissions: DUMMY.ALL_PERMISSIONS,
+        branchName: rawUser.branchName || 'Main Flagship Branch',
+      }
+    : null
   let categories = getStorage('categories', DUMMY.INITIAL_CATEGORIES)
   let products = getStorage('products', DUMMY.INITIAL_PRODUCTS)
   let combos = getStorage('combos', DUMMY.INITIAL_COMBOS)
@@ -74,9 +83,16 @@ export function initBrowserMockApi() {
 
     auth: {
       login: async ({ pin, username }) => {
-        const user = DUMMY.INITIAL_USERS.find(
+        const found = DUMMY.INITIAL_USERS.find(
           (u) => (pin && u.pin === pin) || (username && u.username === username)
         ) || DUMMY.INITIAL_USERS[0]
+        const user = {
+          ...found,
+          roleCode: found.roleCode || found.role_code || 'super_admin',
+          roleName: found.roleName || found.role_name || 'Super Administrator',
+          permissions: DUMMY.ALL_PERMISSIONS,
+          branchName: found.branchName || 'Main Flagship Branch',
+        }
         currentUser = user
         setStorage('current_user', user)
         return user
@@ -86,7 +102,16 @@ export function initBrowserMockApi() {
         setStorage('current_user', null)
         return true
       },
-      getCurrentUser: async () => currentUser,
+      getCurrentUser: async () => {
+        if (!currentUser) return null
+        return {
+          ...currentUser,
+          roleCode: currentUser.roleCode || currentUser.role_code || 'super_admin',
+          roleName: currentUser.roleName || currentUser.role_name || 'Super Administrator',
+          permissions: DUMMY.ALL_PERMISSIONS,
+          branchName: currentUser.branchName || 'Main Flagship Branch',
+        }
+      },
       getLoginUsers: async () => DUMMY.INITIAL_USERS,
     },
 

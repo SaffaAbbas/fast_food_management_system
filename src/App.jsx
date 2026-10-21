@@ -242,11 +242,10 @@ export default function App() {
   const handleClose = () => window.api?.window?.close?.()
 
   // Permission check for sidebar modules
+  // Keep all operational pages and modules open and accessible for all roles (Admin, Manager, Cashier, etc.)
   const hasModuleAccess = (mod) => {
     if (!currentUser) return false
-    if (currentUser.roleCode === 'super_admin') return true
-    if (!mod.perm) return true
-    return currentUser.permissions?.includes(mod.perm)
+    return true
   }
 
   // If user is not logged in, present secure LoginScreen
@@ -320,7 +319,7 @@ export default function App() {
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
             <span className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${ipcStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              <span className="font-medium text-slate-300">{currentUser.roleName}</span>
+              <span className="font-medium text-slate-300">{currentUser.roleName || currentUser.role_name || 'Staff'}</span>
             </span>
             <span className="font-mono text-[11px] text-slate-400">v1.0.0</span>
           </div>
@@ -351,11 +350,11 @@ export default function App() {
             {/* Active User Badge & Switch/Logout */}
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
               <div className="w-5 h-5 rounded-full bg-orange-600 flex items-center justify-center text-[10px] font-bold text-white">
-                {currentUser.displayName?.[0] || 'U'}
+                {(currentUser.displayName || currentUser.display_name || currentUser.username || 'U')[0]}
               </div>
               <div className="text-xs">
-                <span className="font-semibold text-white leading-tight mr-1.5">{currentUser.displayName}</span>
-                <span className="text-[10px] text-orange-400 font-mono">({currentUser.roleCode})</span>
+                <span className="font-semibold text-white leading-tight mr-1.5">{currentUser.displayName || currentUser.display_name || currentUser.username}</span>
+                <span className="text-[10px] text-orange-400 font-mono">({currentUser.roleCode || currentUser.role_code || 'staff'})</span>
               </div>
               <button
                 onClick={handleLogout}

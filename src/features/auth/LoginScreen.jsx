@@ -13,11 +13,11 @@ import {
 } from 'lucide-react'
 
 const FALLBACK_USERS = [
-  { id: 'admin', username: 'admin', displayName: 'Administrator', role_code: 'super_admin', role_name: 'Super Administrator', pin: '1234', pass: 'admin123' },
-  { id: 'manager', username: 'manager', displayName: 'Sarah Manager', role_code: 'manager', role_name: 'Restaurant Manager', pin: '4321', pass: 'manager123' },
-  { id: 'cashier1', username: 'cashier1', displayName: 'Alex Cashier', role_code: 'cashier', role_name: 'Cashier', pin: '0000', pass: 'cashier123' },
-  { id: 'waiter1', username: 'waiter1', displayName: 'Jordan Waiter', role_code: 'waiter', role_name: 'Waiter', pin: '1111', pass: null },
-  { id: 'chef1', username: 'chef1', displayName: 'Chef Gordon', role_code: 'kitchen_staff', role_name: 'Kitchen Staff', pin: '2222', pass: null },
+  { id: 'admin', username: 'admin', displayName: 'Administrator', display_name: 'Administrator', role_code: 'super_admin', roleCode: 'super_admin', role_name: 'Super Administrator', roleName: 'Super Administrator', pin: '1234', pass: 'admin123' },
+  { id: 'manager', username: 'manager', displayName: 'Sarah Manager', display_name: 'Sarah Manager', role_code: 'manager', roleCode: 'manager', role_name: 'Restaurant Manager', roleName: 'Restaurant Manager', pin: '2345', pass: 'manager123' },
+  { id: 'cashier', username: 'cashier', displayName: 'Sam Cashier', display_name: 'Sam Cashier', role_code: 'cashier', roleCode: 'cashier', role_name: 'Cashier', roleName: 'Cashier', pin: '3456', pass: 'cashier123' },
+  { id: 'waiter', username: 'waiter', displayName: 'David Waiter', display_name: 'David Waiter', role_code: 'waiter', roleCode: 'waiter', role_name: 'Waiter', roleName: 'Waiter', pin: '4567', pass: 'waiter123' },
+  { id: 'chef', username: 'chef', displayName: 'Gordon Head Chef', display_name: 'Gordon Head Chef', role_code: 'kitchen_staff', roleCode: 'kitchen_staff', role_name: 'Kitchen Staff', roleName: 'Kitchen Staff', pin: '5678', pass: 'chef123' },
 ]
 
 export default function LoginScreen({ onLoginSuccess }) {
@@ -103,12 +103,25 @@ export default function LoginScreen({ onLoginSuccess }) {
         if (matched) {
           onLoginSuccess({
             id: matched.id,
+            userId: matched.id,
             username: matched.username,
             displayName: matched.displayName,
-            roleCode: matched.role_code,
-            roleName: matched.role_name,
+            roleCode: matched.roleCode || matched.role_code,
+            roleName: matched.roleName || matched.role_name,
+            branchId: 'br-01',
             branchName: 'Main Flagship Branch',
-            permissions: ['dashboard:view', 'pos:create_order', 'menu:manage', 'settings:manage'],
+            permissions: [
+              'dashboard:view',
+              'pos:create_order',
+              'pos:apply_discount',
+              'pos:process_refund',
+              'menu:manage',
+              'inventory:manage',
+              'reports:view',
+              'staff:manage',
+              'settings:manage',
+              'kitchen:view',
+            ],
           })
         } else {
           throw new Error('Invalid PIN code.')
@@ -147,12 +160,25 @@ export default function LoginScreen({ onLoginSuccess }) {
         if (matched) {
           onLoginSuccess({
             id: matched.id,
+            userId: matched.id,
             username: matched.username,
             displayName: matched.displayName,
-            roleCode: matched.role_code,
-            roleName: matched.role_name,
+            roleCode: matched.roleCode || matched.role_code,
+            roleName: matched.roleName || matched.role_name,
+            branchId: 'br-01',
             branchName: 'Main Flagship Branch',
-            permissions: ['dashboard:view', 'pos:create_order', 'menu:manage', 'settings:manage'],
+            permissions: [
+              'dashboard:view',
+              'pos:create_order',
+              'pos:apply_discount',
+              'pos:process_refund',
+              'menu:manage',
+              'inventory:manage',
+              'reports:view',
+              'staff:manage',
+              'settings:manage',
+              'kitchen:view',
+            ],
           })
         } else {
           throw new Error('Invalid username or password.')

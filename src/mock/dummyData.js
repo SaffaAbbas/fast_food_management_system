@@ -12,12 +12,25 @@ export const INITIAL_BRANCH = {
   currency_symbol: '$',
 }
 
+export const ALL_PERMISSIONS = [
+  'dashboard:view',
+  'pos:create_order',
+  'pos:apply_discount',
+  'pos:process_refund',
+  'menu:manage',
+  'inventory:manage',
+  'reports:view',
+  'staff:manage',
+  'settings:manage',
+  'kitchen:view',
+]
+
 export const INITIAL_USERS = [
-  { id: 'usr-admin', username: 'admin', displayName: 'Administrator', display_name: 'Administrator', role_code: 'super_admin', role_name: 'Super Administrator', pin: '1234', pass: 'admin123' },
-  { id: 'usr-mgr', username: 'manager', displayName: 'Sarah Manager', display_name: 'Sarah Manager', role_code: 'manager', role_name: 'Restaurant Manager', pin: '2345', pass: 'manager123' },
-  { id: 'usr-cashier', username: 'cashier', displayName: 'Sam Cashier', display_name: 'Sam Cashier', role_code: 'cashier', role_name: 'Senior Cashier', pin: '3456', pass: 'cashier123' },
-  { id: 'usr-waiter', username: 'waiter', displayName: 'David Waiter', display_name: 'David Waiter', role_code: 'waiter', role_name: 'Head Waiter', pin: '4567', pass: 'waiter123' },
-  { id: 'usr-chef', username: 'chef', displayName: 'Gordon Head Chef', display_name: 'Gordon Head Chef', role_code: 'kitchen_staff', role_name: 'Head Chef', pin: '5678', pass: 'chef123' },
+  { id: 'usr-admin', username: 'admin', displayName: 'Administrator', display_name: 'Administrator', roleCode: 'super_admin', role_code: 'super_admin', roleName: 'Super Administrator', role_name: 'Super Administrator', pin: '1234', pass: 'admin123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
+  { id: 'usr-mgr', username: 'manager', displayName: 'Sarah Manager', display_name: 'Sarah Manager', roleCode: 'manager', role_code: 'manager', roleName: 'Restaurant Manager', role_name: 'Restaurant Manager', pin: '2345', pass: 'manager123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
+  { id: 'usr-cashier', username: 'cashier', displayName: 'Sam Cashier', display_name: 'Sam Cashier', roleCode: 'cashier', role_code: 'cashier', roleName: 'Senior Cashier', role_name: 'Senior Cashier', pin: '3456', pass: 'cashier123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
+  { id: 'usr-waiter', username: 'waiter', displayName: 'David Waiter', display_name: 'David Waiter', roleCode: 'waiter', role_code: 'waiter', roleName: 'Head Waiter', role_name: 'Head Waiter', pin: '4567', pass: 'waiter123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
+  { id: 'usr-chef', username: 'chef', displayName: 'Gordon Head Chef', display_name: 'Gordon Head Chef', roleCode: 'kitchen_staff', role_code: 'kitchen_staff', roleName: 'Head Chef', role_name: 'Head Chef', pin: '5678', pass: 'chef123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
 ]
 
 export const INITIAL_ROLES = [
