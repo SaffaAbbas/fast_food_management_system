@@ -17,6 +17,8 @@
     "test:crm": "electron test/crm_reservations_test.js",
     "test:delivery": "electron test/delivery_dispatch_test.js",
     "test:reports": "electron test/reports_settings_test.js",
+    "seed:dummy": "electron electron/db/populate_all_dummy_data.js",
+    "inspect:db": "electron test/inspect_current_db.js",
     "debug:order": "electron test/debug_create_order.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "preview": "vite preview"
