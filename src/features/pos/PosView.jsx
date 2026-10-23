@@ -25,12 +25,13 @@ import {
   CheckCircle2,
   Layers,
   Receipt,
-  Ticket
+  Ticket,
+  ArrowLeft
 } from 'lucide-react'
 import PaymentModal from './PaymentModal.jsx'
 import ReceiptModal from './ReceiptModal.jsx'
 
-export default function PosView({ currentUser, preselectedTable, onNavigateToTables }) {
+export default function PosView({ currentUser, preselectedTable, onNavigateToTables, onNavigateToDashboard, onBack }) {
   // Order Parameters
   const [orderType, setOrderType] = useState('DINE_IN') // 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'
   const [selectedTable, setSelectedTable] = useState(preselectedTable || null)
@@ -418,8 +419,21 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
 
       {/* TOP CONTROL BAR */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg">
-        {/* Order Type Switcher */}
-        <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
+        <div className="flex items-center gap-2">
+          {/* Back to Dashboard shortcut */}
+          {(onBack || onNavigateToDashboard) && (
+            <button
+              onClick={onBack || onNavigateToDashboard}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-bold transition-all cursor-pointer shadow-sm group"
+              title="Return to Main Dashboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Dashboard</span>
+            </button>
+          )}
+
+          {/* Order Type Switcher */}
+          <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
           {[
             { id: 'DINE_IN', label: 'Dine-In', icon: Grid3X3 },
             { id: 'TAKEAWAY', label: 'Takeaway', icon: ShoppingBag },
@@ -443,6 +457,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
             )
           })}
         </div>
+      </div>
 
         {/* Dynamic Context Badges (Table, Customer, Held Counter) */}
         <div className="flex items-center gap-2 flex-wrap">

@@ -18,10 +18,11 @@ import {
   CreditCard,
   Building,
   Globe,
-  Coins
+  Coins,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function CashDrawerShiftView() {
+export default function CashDrawerShiftView({ onBack }) {
   const [currentSession, setCurrentSession] = useState(null)
   const [shiftHistory, setShiftHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -222,6 +223,16 @@ export default function CashDrawerShiftView() {
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-all shadow-sm"
+                title="Back to Dashboard"
+              >
+                <ArrowLeft className="w-4 h-4 text-orange-400" />
+                <span>Back</span>
+              </button>
+            )}
             <div className={`p-3.5 rounded-xl border ${currentSession ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-400' : 'bg-rose-950/40 border-rose-800/60 text-rose-400'}`}>
               <DollarSign className="w-8 h-8" />
             </div>

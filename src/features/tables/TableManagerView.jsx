@@ -16,10 +16,11 @@ import {
   FolderPlus,
   RefreshCw,
   ShoppingBag,
-  Sparkles
+  Sparkles,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function TableManagerView({ onStartOrderForTable }) {
+export default function TableManagerView({ onStartOrderForTable, onBack }) {
   const [floors, setFloors] = useState([])
   const [activeFloorId, setActiveFloorId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -96,7 +97,17 @@ export default function TableManagerView({ onStartOrderForTable }) {
 
       {/* Top Banner & Floor Header */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all cursor-pointer shadow-sm group"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-xl bg-orange-950/80 border border-orange-800/80 text-orange-400">
               <Grid3X3 className="w-5 h-5" />

@@ -12,10 +12,11 @@ import {
   X,
   PieChart,
   TrendingDown,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function ExpensesView() {
+export default function ExpensesView({ onBack }) {
   const [expenses, setExpenses] = useState([])
   const [categories, setCategories] = useState([])
   const [summary, setSummary] = useState({ totalCents: 0, categoryBreakdown: [] })
@@ -135,6 +136,16 @@ export default function ExpensesView() {
       {/* Top Banner & KPI Cards */}
       <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-all shadow-sm"
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="w-4 h-4 text-orange-400" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="w-10 h-10 rounded-xl bg-orange-600/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
             <DollarSign className="w-5 h-5" />
           </div>

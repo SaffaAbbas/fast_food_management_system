@@ -35,10 +35,11 @@ import {
   Star,
   Calendar,
   Monitor,
-  Globe
+  Globe,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function ProductManager({ onCatalogUpdated }) {
+export default function ProductManager({ onCatalogUpdated, onBack }) {
   // Navigation & Sub-views
   const [activeTab, setActiveTab] = useState('products') // 'products' | 'categories' | 'combos'
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'table'
@@ -199,7 +200,17 @@ export default function ProductManager({ onCatalogUpdated }) {
     <div className="space-y-6">
       {/* Top Banner & Header */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all cursor-pointer shadow-sm group"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="flex items-center gap-2">
             <div className="p-2 bg-orange-600/10 border border-orange-500/20 rounded-lg text-orange-400">
               <Package className="w-5 h-5" />
@@ -207,8 +218,9 @@ export default function ProductManager({ onCatalogUpdated }) {
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 Menu & Catalog Management
-                <span className="text-[10px] font-mono bg-orange-950 text-orange-300 border border-orange-800/60 px-2 py-0.5 rounded-full">
-                  Phase 4 Production Complete
+                <span className="text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Live Menu Catalog
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
@@ -1542,7 +1554,7 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
                     className="rounded bg-slate-950 border-slate-800 text-orange-600 focus:ring-0"
                   />
                   <span className="text-xs text-slate-300 font-medium">
-                    Track Recipe / Stock Inventory (Phase 7)
+                    Track Recipe / Stock Inventory
                   </span>
                 </label>
               </div>

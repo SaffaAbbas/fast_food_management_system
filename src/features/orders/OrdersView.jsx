@@ -16,12 +16,13 @@ import {
   Ban,
   Clock,
   ChevronRight,
-  RefreshCw
+  RefreshCw,
+  ArrowLeft
 } from 'lucide-react'
 import ReceiptModal from '../pos/ReceiptModal.jsx'
 import PaymentModal from '../pos/PaymentModal.jsx'
 
-export default function OrdersView({ onNavigateToPos }) {
+export default function OrdersView({ onNavigateToPos, onBack }) {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('ALL') // 'ALL' | 'CONFIRMED' | 'COMPLETED' | 'DRAFT' | 'CANCELLED'
@@ -130,15 +131,27 @@ export default function OrdersView({ onNavigateToPos }) {
 
       {/* Header Banner */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <div className="p-2 rounded-xl bg-orange-950/80 border border-orange-800/80 text-orange-400">
-            <Receipt className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-black text-white tracking-tight">Orders & Billing History</h2>
-            <p className="text-xs text-slate-400">
-              Audit log of all dine-in, takeaway, and delivery orders, payment details, and receipt printing.
-            </p>
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all cursor-pointer shadow-sm group"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back</span>
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-xl bg-orange-950/80 border border-orange-800/80 text-orange-400">
+              <Receipt className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-white tracking-tight">Orders & Billing History</h2>
+              <p className="text-xs text-slate-400">
+                Audit log of all dine-in, takeaway, and delivery orders, payment details, and receipt printing.
+              </p>
+            </div>
           </div>
         </div>
 

@@ -76,7 +76,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
             Live Restaurant Performance & Analytics
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Aggregated directly from persistent local SQLite transactions.
+            Real-time operational metrics, sales totals, and live kitchen order performance.
           </p>
         </div>
 

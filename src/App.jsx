@@ -36,7 +36,8 @@ import {
   AlertCircle,
   LogOut,
   User,
-  Wrench
+  Wrench,
+  ArrowLeft
 } from 'lucide-react'
 
 import LoginScreen from './features/auth/LoginScreen.jsx'
@@ -60,25 +61,25 @@ import SettingsView from './features/settings/SettingsView.jsx'
 import QrKioskCenterView from './features/kiosk/QrKioskCenterView.jsx'
 
 const MODULE_LIST = [
-  { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, perm: 'dashboard:view', phase: 'Phase 3' },
-  { id: 'pos', name: 'Point of Sale (POS)', icon: ShoppingBag, perm: 'pos:create_order', phase: 'Phase 5' },
-  { id: 'orders', name: 'Orders & Billing', icon: Receipt, perm: 'pos:create_order', phase: 'Phase 5' },
-  { id: 'kitchen', name: 'Kitchen Display (KDS)', icon: UtensilsCrossed, perm: 'kitchen:view', phase: 'Phase 6' },
-  { id: 'tables', name: 'Table & Floor Map', icon: Grid3X3, perm: 'pos:create_order', phase: 'Phase 5' },
-  { id: 'products', name: 'Products & Menu', icon: Package, perm: 'menu:manage', phase: 'Phase 4' },
-  { id: 'inventory', name: 'Inventory & Stock', icon: Boxes, perm: 'inventory:manage', phase: 'Phase 7' },
-  { id: 'recipes', name: 'Recipes & Food Cost', icon: ScrollText, perm: 'inventory:manage', phase: 'Phase 7' },
-  { id: 'purchases', name: 'Purchases & Vendors', icon: Truck, perm: 'inventory:manage', phase: 'Phase 7' },
-  { id: 'expenses', name: 'Expenses', icon: DollarSign, perm: 'reports:view', phase: 'Phase 7' },
-  { id: 'cash_drawer', name: 'Cash Drawer & Shifts', icon: DollarSign, perm: 'pos:create_order', phase: 'Phase 8' },
-  { id: 'staff', name: 'Staff & Attendance', icon: UserCheck, perm: 'pos:create_order', phase: 'Phase 8' },
-  { id: 'customers', name: 'Customers & Loyalty', icon: Users, perm: 'pos:create_order', phase: 'Phase 9' },
-  { id: 'reservations', name: 'Reservations', icon: CalendarDays, perm: 'pos:create_order', phase: 'Phase 9' },
-  { id: 'delivery', name: 'Delivery & Riders', icon: Bike, perm: 'pos:create_order', phase: 'Phase 10' },
-  { id: 'reports', name: 'Reports & Analytics', icon: BarChart3, perm: 'reports:view', phase: 'Phase 11' },
-  { id: 'qr_kiosk', name: 'QR & Kiosk Center', icon: QrCode, perm: 'settings:manage', phase: 'Phase 11' },
-  { id: 'settings', name: 'Settings & Audit Logs', icon: Settings, perm: 'settings:manage', phase: 'Phase 11' },
-  { id: 'diagnostics', name: 'System Diagnostics', icon: Wrench, perm: null, phase: 'Phase 1 & 2' },
+  { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard, perm: 'dashboard:view' },
+  { id: 'pos', name: 'Point of Sale (POS)', icon: ShoppingBag, perm: 'pos:create_order' },
+  { id: 'orders', name: 'Orders & Billing', icon: Receipt, perm: 'pos:create_order' },
+  { id: 'kitchen', name: 'Kitchen Display (KDS)', icon: UtensilsCrossed, perm: 'kitchen:view' },
+  { id: 'tables', name: 'Table & Floor Map', icon: Grid3X3, perm: 'pos:create_order' },
+  { id: 'products', name: 'Products & Menu', icon: Package, perm: 'menu:manage' },
+  { id: 'inventory', name: 'Inventory & Stock', icon: Boxes, perm: 'inventory:manage' },
+  { id: 'recipes', name: 'Recipes & Food Cost', icon: ScrollText, perm: 'inventory:manage' },
+  { id: 'purchases', name: 'Purchases & Vendors', icon: Truck, perm: 'inventory:manage' },
+  { id: 'expenses', name: 'Expenses', icon: DollarSign, perm: 'reports:view' },
+  { id: 'cash_drawer', name: 'Cash Drawer & Shifts', icon: DollarSign, perm: 'pos:create_order' },
+  { id: 'staff', name: 'Staff & Attendance', icon: UserCheck, perm: 'pos:create_order' },
+  { id: 'customers', name: 'Customers & Loyalty', icon: Users, perm: 'pos:create_order' },
+  { id: 'reservations', name: 'Reservations', icon: CalendarDays, perm: 'pos:create_order' },
+  { id: 'delivery', name: 'Delivery & Riders', icon: Bike, perm: 'pos:create_order' },
+  { id: 'reports', name: 'Reports & Analytics', icon: BarChart3, perm: 'reports:view' },
+  { id: 'qr_kiosk', name: 'QR & Kiosk Center', icon: QrCode, perm: 'settings:manage' },
+  { id: 'settings', name: 'Settings & Audit Logs', icon: Settings, perm: 'settings:manage' },
+  { id: 'diagnostics', name: 'System Diagnostics', icon: Wrench, perm: null },
 ]
 
 export default function App() {
@@ -304,11 +305,9 @@ export default function App() {
                   <Icon className={`w-4 h-4 ${isActive ? 'text-white' : permitted ? 'text-slate-400' : 'text-slate-600'}`} />
                   <span className="truncate">{mod.name}</span>
                 </div>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                  isActive ? 'bg-orange-700/60 text-orange-100' : 'bg-slate-800 text-slate-400'
-                }`}>
-                  {mod.phase}
-                </span>
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                )}
               </button>
             )
           })}
@@ -336,14 +335,47 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 bg-slate-900">
         {/* Custom Window Header & App Bar */}
         <header className="h-14 bg-slate-950/80 backdrop-blur border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <h1 className="text-sm font-semibold text-white tracking-wide flex items-center gap-2">
-              <span>Restaurant & Fast Food Management System</span>
-              <span className="text-xs font-normal text-slate-500">|</span>
-              <span className="text-xs font-normal text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Check className="w-3 h-3" /> Phase 1, 2, 3 & 4 Active
+          <div className="flex items-center gap-3">
+            {/* Back Button if not on dashboard */}
+            {activeModule !== 'dashboard' && (
+              <button
+                onClick={() => setActiveModule('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 text-xs font-bold transition-all shadow-sm group cursor-pointer"
+                title="Return to Main Dashboard"
+              >
+                <ArrowLeft className="w-4 h-4 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+                <span>Back to Dashboard</span>
+              </button>
+            )}
+
+            {/* Quick POS jump button if not on POS */}
+            {activeModule !== 'pos' && (
+              <button
+                onClick={() => setActiveModule('pos')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-600/20 hover:bg-orange-600 text-orange-300 hover:text-white border border-orange-500/40 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                title="Launch Point of Sale (POS)"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>Go to POS</span>
+              </button>
+            )}
+
+            {/* Active module breadcrumb */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-600 font-semibold">/</span>
+              <span className="font-bold text-white flex items-center gap-1.5 bg-slate-900/80 border border-slate-800 px-2.5 py-1 rounded-lg">
+                {(() => {
+                  const CurrentIcon = MODULE_LIST.find((m) => m.id === activeModule)?.icon || LayoutDashboard
+                  return <CurrentIcon className="w-3.5 h-3.5 text-orange-400" />
+                })()}
+                <span>{MODULE_LIST.find((m) => m.id === activeModule)?.name}</span>
               </span>
-            </h1>
+            </div>
+
+            <span className="hidden xl:flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800/60 px-2.5 py-1 rounded-full ml-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              Real-Time Restaurant POS
+            </span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -423,6 +455,8 @@ export default function App() {
               currentUser={currentUser}
               preselectedTable={posPreselectedTable}
               onNavigateToTables={() => setActiveModule('tables')}
+              onNavigateToDashboard={() => setActiveModule('dashboard')}
+              onBack={() => setActiveModule('dashboard')}
             />
           ) : activeModule === 'tables' ? (
             <TableManagerView
@@ -430,55 +464,70 @@ export default function App() {
                 setPosPreselectedTable(tbl)
                 setActiveModule('pos')
               }}
+              onBack={() => setActiveModule('dashboard')}
             />
           ) : activeModule === 'orders' ? (
-            <OrdersView onNavigateToPos={() => setActiveModule('pos')} />
+            <OrdersView
+              onNavigateToPos={() => setActiveModule('pos')}
+              onBack={() => setActiveModule('dashboard')}
+            />
           ) : activeModule === 'kitchen' ? (
-            <KitchenDisplayView currentUser={currentUser} />
+            <KitchenDisplayView currentUser={currentUser} onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'products' ? (
-            <ProductManager onCatalogUpdated={loadData} />
+            <ProductManager onCatalogUpdated={loadData} onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'inventory' ? (
-            <InventoryManagerView />
+            <InventoryManagerView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'recipes' ? (
-            <RecipeManagerView />
+            <RecipeManagerView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'purchases' ? (
-            <PurchasesView />
+            <PurchasesView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'expenses' ? (
-            <ExpensesView />
+            <ExpensesView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'cash_drawer' ? (
-            <CashDrawerShiftView />
+            <CashDrawerShiftView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'staff' ? (
-            <StaffManagerView />
+            <StaffManagerView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'customers' ? (
-            <CustomersView />
+            <CustomersView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'reservations' ? (
             <ReservationsView
               onStartOrderForTable={(tbl) => {
                 setPosPreselectedTable(tbl)
                 setActiveModule('pos')
               }}
+              onBack={() => setActiveModule('dashboard')}
             />
           ) : activeModule === 'delivery' ? (
-            <DeliveryDispatchView />
+            <DeliveryDispatchView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'reports' ? (
-            <ReportsView />
+            <ReportsView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'qr_kiosk' ? (
-            <QrKioskCenterView />
+            <QrKioskCenterView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'settings' ? (
-            <SettingsView />
+            <SettingsView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'diagnostics' ? (
             /* System Diagnostics & Database Explorer */
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-800 rounded-xl p-5 shadow-lg">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-base font-bold text-white flex items-center gap-2">
-                      <Wrench className="w-5 h-5 text-orange-400" />
-                      System Diagnostics & SQLite Engine Explorer
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Direct diagnostic verification of native Electron IPC, SQLite tables, and hot backup mechanism.
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setActiveModule('dashboard')}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-all shadow-sm"
+                      title="Back to Dashboard"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-orange-400" />
+                      <span>Back</span>
+                    </button>
+                    <div>
+                      <h2 className="text-base font-bold text-white flex items-center gap-2">
+                        <Wrench className="w-5 h-5 text-orange-400" />
+                        System Diagnostics & SQLite Engine Explorer
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Direct diagnostic verification of native Electron IPC, SQLite tables, and hot backup mechanism.
+                      </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -561,24 +610,23 @@ export default function App() {
               </div>
             </div>
           ) : (
-            /* Upcoming Modules Preview Card */
+            /* Module View Container */
             <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-6 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Info className="w-4 h-4 text-orange-400" />
-                  {MODULE_LIST.find((m) => m.id === activeModule)?.name}
+                  {MODULE_LIST.find((m) => m.id === activeModule)?.name || 'Module'}
                 </h3>
-                <span className="text-xs font-mono bg-orange-950 text-orange-300 border border-orange-800/60 px-2.5 py-1 rounded">
-                  Target: {MODULE_LIST.find((m) => m.id === activeModule)?.phase}
+                <span className="text-xs font-mono bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-2.5 py-1 rounded">
+                  System Active
                 </span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                This module is configured in the database schema (Migration 001) and scheduled for its dedicated implementation phase.
-                You can switch back to the <strong className="text-white">Dashboard</strong> to view live sales analytics or <strong className="text-white">System Diagnostics</strong> to inspect the database.
+                You can switch back to the <strong className="text-white">Dashboard</strong> to view live sales analytics or <strong className="text-white">POS Terminal</strong> to create orders.
               </p>
               <button
                 onClick={() => setActiveModule('dashboard')}
-                className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold"
+                className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold cursor-pointer"
               >
                 Return to Dashboard
               </button>

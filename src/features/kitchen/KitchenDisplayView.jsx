@@ -19,7 +19,8 @@ import {
   ArrowRight,
   User,
   Grid3X3,
-  X
+  X,
+  ArrowLeft
 } from 'lucide-react'
 import KitchenTicketModal from './KitchenTicketModal.jsx'
 
@@ -53,7 +54,7 @@ function playKitchenChime() {
   }
 }
 
-export default function KitchenDisplayView({ currentUser }) {
+export default function KitchenDisplayView({ currentUser, onBack }) {
   // Data State
   const [stations, setStations] = useState([])
   const [selectedStation, setSelectedStation] = useState('ALL')
@@ -208,6 +209,16 @@ export default function KitchenDisplayView({ currentUser }) {
         {/* Left: Branding & Metrics */}
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all cursor-pointer shadow-sm group"
+                title="Return to Dashboard"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+                <span>Back</span>
+              </button>
+            )}
             <div className="w-10 h-10 rounded-xl bg-orange-600/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
               <UtensilsCrossed className="w-5 h-5" />
             </div>

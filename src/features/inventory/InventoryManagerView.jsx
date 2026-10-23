@@ -14,10 +14,11 @@ import {
   CheckCircle2,
   Package,
   Layers,
-  Scale
+  Scale,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function InventoryManagerView() {
+export default function InventoryManagerView({ onBack }) {
   const [items, setItems] = useState([])
   const [units, setUnits] = useState([])
   const [suppliers, setSuppliers] = useState([])
@@ -234,6 +235,16 @@ export default function InventoryManagerView() {
       {/* Top Banner & KPI Summary */}
       <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all cursor-pointer shadow-sm group mr-1"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="w-10 h-10 rounded-xl bg-orange-600/20 border border-orange-500/30 flex items-center justify-center text-orange-400">
             <Boxes className="w-5 h-5" />
           </div>

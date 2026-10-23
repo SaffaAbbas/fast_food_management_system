@@ -30,7 +30,8 @@ export function initBrowserMockApi() {
   console.log('[Browser Mock] Initializing in-browser mock bridge for Vercel/Web environment...')
 
   // Initialize or fetch state from localStorage
-  const rawUser = getStorage('current_user', DUMMY.INITIAL_USERS[0])
+  let users = getStorage('users', DUMMY.INITIAL_USERS)
+  const rawUser = getStorage('current_user', users[0] || DUMMY.INITIAL_USERS[0])
   let currentUser = rawUser
     ? {
         ...rawUser,
@@ -82,10 +83,22 @@ export function initBrowserMockApi() {
     },
 
     auth: {
-      login: async ({ pin, username }) => {
-        const found = DUMMY.INITIAL_USERS.find(
-          (u) => (pin && u.pin === pin) || (username && u.username === username)
-        ) || DUMMY.INITIAL_USERS[0]
+      login: async ({ pin, username, password, userId }) => {
+        const list = getStorage('users', users)
+        const found = list.find((u) => {
+          if (userId && (u.id === userId || u.userId === userId)) {
+            if (pin) return u.pin === pin
+            if (password) return u.pass === password || u.password === password
+            return true
+          }
+          if (pin && u.pin === pin) return true
+          if (username && u.username && u.username.toLowerCase() === username.toLowerCase()) {
+            if (password) return u.pass === password || u.password === password
+            return true
+          }
+          return false
+        }) || list[0]
+
         const user = {
           ...found,
           roleCode: found.roleCode || found.role_code || 'super_admin',
@@ -96,6 +109,39 @@ export function initBrowserMockApi() {
         currentUser = user
         setStorage('current_user', user)
         return user
+      },
+      registerUser: async ({ username, displayName, roleCode, pin, password }) => {
+        const list = getStorage('users', users)
+        const roleNames = {
+          super_admin: 'Super Administrator',
+          admin: 'Administrator',
+          manager: 'Restaurant Manager',
+          cashier: 'Senior Cashier',
+          waiter: 'Head Waiter',
+          kitchen_staff: 'Head Chef',
+        }
+        const cleanRole = roleCode || 'cashier'
+        const newUser = {
+          id: `usr-${Date.now()}`,
+          userId: `usr-${Date.now()}`,
+          username: (username || `staff_${Date.now()}`).toLowerCase().trim(),
+          displayName: displayName || username || 'New Staff',
+          display_name: displayName || username || 'New Staff',
+          roleCode: cleanRole,
+          role_code: cleanRole,
+          roleName: roleNames[cleanRole] || 'Staff Member',
+          role_name: roleNames[cleanRole] || 'Staff Member',
+          pin: pin || '1234',
+          pass: password || '123456',
+          branchId: 'br-01',
+          branchName: 'Main Flagship Branch',
+          permissions: DUMMY.ALL_PERMISSIONS,
+        }
+        users = [...list, newUser]
+        setStorage('users', users)
+        currentUser = newUser
+        setStorage('current_user', newUser)
+        return newUser
       },
       logout: async () => {
         currentUser = null
@@ -112,7 +158,7 @@ export function initBrowserMockApi() {
           branchName: currentUser.branchName || 'Main Flagship Branch',
         }
       },
-      getLoginUsers: async () => DUMMY.INITIAL_USERS,
+      getLoginUsers: async () => getStorage('users', users),
     },
 
     dashboard: {
@@ -225,25 +271,92 @@ export function initBrowserMockApi() {
 
     pos: {
       createOrder: async (orderData) => {
+        const orderNum = orderData.orderNumber || orderData.order_number || `ORD-${Date.now().toString().slice(-4)}`
+        const tableNum = orderData.tableNumber || (orderData.tableId ? floors.flatMap((f) => f.tables).find((t) => t.id === (orderData.tableId || orderData.table_id))?.table_number : null) || 'T1'
+        const grandTotal = orderData.totalCents ?? orderData.total_cents ?? 0
+        const subtotal = orderData.subtotalCents ?? orderData.subtotal_cents ?? grandTotal
         const newOrder = {
           id: `ord-${Date.now()}`,
-          order_number: `ORD-${Date.now().toString().slice(-4)}`,
-          status: 'CONFIRMED',
+          orderNumber: orderNum,
+          order_number: orderNum,
+          status: orderData.status || 'CONFIRMED',
+          orderType: orderData.orderType || orderData.order_type || 'DINE_IN',
+          order_type: orderData.orderType || orderData.order_type || 'DINE_IN',
+          tableId: orderData.tableId || orderData.table_id || null,
+          table_id: orderData.tableId || orderData.table_id || null,
+          tableNumber: tableNum,
+          table_number: tableNum,
+          customerId: orderData.customerId || orderData.customer_id || null,
+          customer_id: orderData.customerId || orderData.customer_id || null,
+          customerName: orderData.customerName || (orderData.customerId ? customers.find((c) => c.id === orderData.customerId)?.name : null) || 'Walk-in Guest',
+          customer_name: orderData.customerName || (orderData.customerId ? customers.find((c) => c.id === orderData.customerId)?.name : null) || 'Walk-in Guest',
+          subtotalCents: subtotal,
+          subtotal_cents: subtotal,
+          discountCents: orderData.discountCents ?? orderData.discount_cents ?? 0,
+          discount_cents: orderData.discountCents ?? orderData.discount_cents ?? 0,
+          discountReason: orderData.discountReason || '',
+          discount_reason: orderData.discountReason || '',
+          taxCents: orderData.taxCents ?? orderData.tax_cents ?? 0,
+          tax_cents: orderData.taxCents ?? orderData.tax_cents ?? 0,
+          serviceChargeCents: orderData.serviceChargeCents ?? 0,
+          service_charge_cents: orderData.serviceChargeCents ?? 0,
+          deliveryChargeCents: orderData.deliveryChargeCents ?? 0,
+          delivery_charge_cents: orderData.deliveryChargeCents ?? 0,
+          totalCents: grandTotal,
+          total_cents: grandTotal,
+          notes: orderData.notes || '',
+          items_count: (orderData.items || []).length,
+          items: (orderData.items || []).map((it, idx) => ({
+            id: `oi-${Date.now()}-${idx}`,
+            productId: it.productId || it.product_id,
+            product_id: it.productId || it.product_id,
+            name: it.name || it.item_name || 'Menu Item',
+            item_name: it.name || it.item_name || 'Menu Item',
+            quantity: it.quantity || 1,
+            unitPriceCents: it.unitPriceCents || it.unit_price_cents || 0,
+            unit_price_cents: it.unitPriceCents || it.unit_price_cents || 0,
+            totalCents: it.totalCents || it.total_cents || 0,
+            total_cents: it.totalCents || it.total_cents || 0,
+            notes: it.notes || '',
+            modifiers: it.modifiers || [],
+          })),
           created_at: new Date().toISOString(),
-          ...orderData,
+          createdAt: new Date().toISOString(),
         }
         orders = [newOrder, ...orders]
         setStorage('orders', orders)
+
+        // If dine in table, mark occupied
+        if (orderData.tableId || orderData.table_id) {
+          const tid = orderData.tableId || orderData.table_id
+          floors = floors.map((f) => ({
+            ...f,
+            tables: f.tables.map((t) => (t.id === tid ? { ...t, status: 'OCCUPIED', current_order_id: newOrder.id } : t)),
+          }))
+          setStorage('floors', floors)
+        }
+
         return newOrder
       },
       getOrder: async (id) => orders.find((o) => o.id === id) || null,
       processPayment: async ({ orderId, paymentMethod, amountCents }) => {
-        orders = orders.map((o) => (o.id === orderId ? { ...o, status: 'COMPLETED', paid_cents: amountCents } : o))
+        orders = orders.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                status: 'COMPLETED',
+                paid_cents: amountCents,
+                paidCents: amountCents,
+                payment_method: paymentMethod || 'CASH',
+                paymentMethod: paymentMethod || 'CASH',
+              }
+            : o
+        )
         setStorage('orders', orders)
         return { success: true, paymentId: `pmt-${Date.now()}` }
       },
       holdOrder: async (data) => {
-        const held = { id: `ord-held-${Date.now()}`, ...data, status: 'DRAFT' }
+        const held = { id: `ord-held-${Date.now()}`, ...data, status: 'DRAFT', created_at: new Date().toISOString() }
         orders = [held, ...orders]
         setStorage('orders', orders)
         return held
@@ -260,14 +373,16 @@ export function initBrowserMockApi() {
           res = res.filter((o) => o.status === status)
         }
         if (orderType && orderType !== 'ALL') {
-          res = res.filter((o) => o.order_type === orderType)
+          res = res.filter((o) => (o.order_type === orderType || o.orderType === orderType))
         }
         if (search) {
           const s = search.toLowerCase()
           res = res.filter(
             (o) =>
               (o.order_number && o.order_number.toLowerCase().includes(s)) ||
-              (o.table_number && o.table_number.toLowerCase().includes(s))
+              (o.orderNumber && o.orderNumber.toLowerCase().includes(s)) ||
+              (o.table_number && o.table_number.toLowerCase().includes(s)) ||
+              (o.customer_name && o.customer_name.toLowerCase().includes(s))
           )
         }
         return res
@@ -850,50 +965,121 @@ export function initBrowserMockApi() {
     },
 
     reports: {
-      getSalesSummary: async () => ({
-        totalOrders: 17,
-        totalSalesCents: 48920,
-        averageOrderCents: 2877,
-        totalDiscountsCents: 1500,
-        totalTaxCents: 4035,
-        totalNetSalesCents: 47420,
+      getSalesSummary: async ({ filter } = {}) => {
+        const completed = orders.filter((o) => ['COMPLETED', 'CONFIRMED', 'DELIVERED', 'SERVED'].includes(o.status))
+        const totalSales = completed.reduce((sum, o) => sum + (o.total_cents ?? o.totalCents ?? 0), 0)
+        const totalOrders = completed.length || 18
+        const finalSales = totalSales > 0 ? totalSales : 52400
+        const totalDisc = completed.reduce((sum, o) => sum + (o.discount_cents ?? o.discountCents ?? 0), 0) || 1200
+        const totalTax = completed.reduce((sum, o) => sum + (o.tax_cents ?? o.taxCents ?? 0), 0) || 4200
+
+        const typeMap = {}
+        completed.forEach((o) => {
+          const t = o.order_type || o.orderType || 'DINE_IN'
+          if (!typeMap[t]) typeMap[t] = { order_type: t, order_count: 0, total_cents: 0 }
+          typeMap[t].order_count++
+          typeMap[t].total_cents += (o.total_cents ?? o.totalCents ?? 0)
+        })
+
+        const byOrderType = Object.values(typeMap).length > 0 ? Object.values(typeMap) : [
+          { order_type: 'DINE_IN', order_count: 10, total_cents: 31200 },
+          { order_type: 'TAKEAWAY', order_count: 5, total_cents: 14200 },
+          { order_type: 'DELIVERY', order_count: 3, total_cents: 7000 },
+        ]
+
+        const byPaymentMethod = [
+          { payment_method: 'CASH', payment_count: 9, total_cents: Math.round(finalSales * 0.45) },
+          { payment_method: 'CREDIT_CARD', payment_count: 6, total_cents: Math.round(finalSales * 0.40) },
+          { payment_method: 'QR_MOBILE', payment_count: 3, total_cents: Math.round(finalSales * 0.15) },
+        ]
+
+        return {
+          startDate: filter?.startDate || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+          endDate: filter?.endDate || new Date().toISOString().slice(0, 10),
+          overall: {
+            total_orders: totalOrders,
+            total_sales_cents: finalSales,
+            subtotal_cents: Math.round(finalSales * 0.9),
+            total_discount_cents: totalDisc,
+            total_tax_cents: totalTax,
+            total_service_charge_cents: 0,
+            total_delivery_charge_cents: 900,
+            average_order_cents: Math.round(finalSales / totalOrders),
+          },
+          byOrderType,
+          byPaymentMethod,
+          dailyTimeline: [
+            { date: new Date().toISOString().slice(0, 10), order_count: totalOrders, total_cents: finalSales },
+          ],
+        }
+      },
+
+      getProductPerformance: async ({ filter } = {}) => ({
+        items: [
+          { product_id: 'prod-01', item_name: 'Smash Double Cheeseburger', category_name: 'Burgers & Sandwiches', total_quantity_sold: 34, total_revenue_cents: 30566 },
+          { product_id: 'prod-02', item_name: 'Crispy Buffalo Chicken Burger', category_name: 'Burgers & Sandwiches', total_quantity_sold: 28, total_revenue_cents: 22372 },
+          { product_id: 'prod-03', item_name: 'Pepperoni Rustica Pizza (12")', category_name: 'Artisan Pizzas', total_quantity_sold: 22, total_revenue_cents: 30778 },
+          { product_id: 'prod-04', item_name: 'Truffle Parmesan Hand-Cut Fries', category_name: 'Crispy Sides & Starters', total_quantity_sold: 45, total_revenue_cents: 22455 },
+          { product_id: 'prod-05', item_name: 'Craft Cola Float', category_name: 'Beverages & Refreshers', total_quantity_sold: 39, total_revenue_cents: 13611 },
+          { product_id: 'prod-06', item_name: 'Warm Belgian Chocolate Lava Cake', category_name: 'Sweet Desserts', total_quantity_sold: 19, total_revenue_cents: 12331 },
+        ],
+        categoryBreakdown: [
+          { category_name: 'Burgers & Sandwiches', total_quantity_sold: 62, total_revenue_cents: 52938 },
+          { category_name: 'Artisan Pizzas', total_quantity_sold: 22, total_revenue_cents: 30778 },
+          { category_name: 'Crispy Sides & Starters', total_quantity_sold: 45, total_revenue_cents: 22455 },
+          { category_name: 'Beverages & Refreshers', total_quantity_sold: 39, total_revenue_cents: 13611 },
+          { category_name: 'Sweet Desserts', total_quantity_sold: 19, total_revenue_cents: 12331 },
+        ],
       }),
-      getProductPerformance: async () => [
-        { name: 'Classic Cheeseburger', category_name: 'Burgers & Sandwiches', quantity_sold: 28, revenue_cents: 25172 },
-        { name: 'Pepperoni Feast Pizza', category_name: 'Artisan Pizzas', quantity_sold: 19, revenue_cents: 26581 },
-        { name: 'Golden Crinkle Cut Fries', category_name: 'Crispy Sides & Starters', quantity_sold: 34, revenue_cents: 13566 },
-        { name: 'Craft Cola Float', category_name: 'Beverages & Refreshers', quantity_sold: 22, revenue_cents: 7678 },
-        { name: 'Warm Molten Lava Cake', category_name: 'Sweet Desserts', quantity_sold: 11, revenue_cents: 7139 },
-      ],
-      getHourlyBreakdown: async () => {
+
+      getHourlyBreakdown: async ({ filter } = {}) => {
         const slots = []
         for (let h = 0; h < 24; h++) {
           const isLunch = h >= 12 && h <= 14
           const isDinner = h >= 19 && h <= 21
-          const ordersCount = isLunch ? 6 : isDinner ? 8 : h >= 9 && h <= 22 ? 2 : 0
+          const orderCount = isLunch ? 8 : isDinner ? 11 : h >= 10 && h <= 22 ? 3 : 0
+          const totalCents = orderCount * 2850
           slots.push({
             hour: h,
-            label: `${h}:00`,
-            orders_count: ordersCount,
-            total_sales_cents: ordersCount * 2800,
+            label: `${h.toString().padStart(2, '0')}:00`,
+            orderCount,
+            totalCents,
           })
         }
         return slots
       },
-      getProfitAndLoss: async () => ({
-        grossRevenueCents: 48920,
-        discountsCents: 1500,
-        netRevenueCents: 47420,
-        cogsCents: 16500,
-        grossProfitCents: 30920,
-        operatingExpensesCents: 14200,
-        netProfitCents: 16720,
-        profitMarginPercentage: 35.2,
-      }),
-      getVoidAudits: async () => ({
-        discountedOrders: orders.filter((o) => (o.discount_cents || 0) > 0),
-        voidOrders: orders.filter((o) => o.status === 'CANCELLED'),
-      }),
+
+      getProfitAndLoss: async ({ filter } = {}) => {
+        const rev = 52400
+        const cogs = 18340
+        const gross = rev - cogs
+        const exp = 14500
+        const net = gross - exp
+        return {
+          revenueCents: rev,
+          discountCents: 1200,
+          taxCents: 4200,
+          cogsCents: cogs,
+          grossProfitCents: gross,
+          expensesCents: exp,
+          netProfitCents: net,
+          marginPercent: ((net / rev) * 100).toFixed(1),
+        }
+      },
+
+      getVoidAudits: async ({ filter } = {}) => {
+        const discounted = orders.filter((o) => (o.discount_cents || o.discountCents || 0) > 0)
+        const voided = orders.filter((o) => o.status === 'CANCELLED' || o.status === 'VOID')
+        return {
+          discountedOrders: discounted.length > 0 ? discounted : [
+            { id: 'aud-disc-1', order_number: 'ORD-9821', discount_cents: 500, discount_reason: 'VIP Loyalty Promo', cashier_name: 'Sam Cashier' },
+            { id: 'aud-disc-2', order_number: 'ORD-9804', discount_cents: 700, discount_reason: 'Manager Courtesy', cashier_name: 'Sarah Manager' },
+          ],
+          voidOrders: voided.length > 0 ? voided : [
+            { id: 'aud-void-1', order_number: 'ORD-9791', total_cents: 2450, status: 'CANCELLED', cashier_name: 'Sam Cashier' },
+          ],
+        }
+      },
       getAuditLogs: async () => [
         { id: 'aud-1', action: 'CREATE_ORDER', entity_type: 'ORDER', entity_id: 'ord-kds-01', created_at: new Date().toISOString() },
         { id: 'aud-2', action: 'CLOCK_IN', entity_type: 'STAFF', entity_id: 'emp-01', created_at: new Date().toISOString() },

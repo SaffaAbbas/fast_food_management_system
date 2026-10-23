@@ -26,10 +26,11 @@ import {
   Car,
   ChevronRight,
   RefreshCw,
-  Wallet
+  Wallet,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function DeliveryDispatchView() {
+export default function DeliveryDispatchView({ onBack }) {
   const [activeTab, setActiveTab] = useState('board') // 'board', 'riders', 'zones', 'settlements'
   const [deliveries, setDeliveries] = useState([])
   const [riders, setRiders] = useState([])
@@ -281,14 +282,25 @@ export default function DeliveryDispatchView() {
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-all shadow-sm"
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="w-4 h-4 text-orange-400" />
+              <span>Back</span>
+            </button>
+          )}
           <div className="p-2.5 bg-orange-500/10 border border-orange-500/20 rounded-xl text-orange-400">
             <Bike className="w-6 h-6" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
               Delivery & Dispatch Control
-              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30">
-                Phase 10
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
+                Live Dispatch
               </span>
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">

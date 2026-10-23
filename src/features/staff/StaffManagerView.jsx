@@ -21,10 +21,11 @@ import {
   Mail,
   Calendar,
   Coffee,
-  Check
+  Check,
+  ArrowLeft
 } from 'lucide-react'
 
-export default function StaffManagerView() {
+export default function StaffManagerView({ onBack }) {
   const [activeTab, setActiveTab] = useState('roster') // roster, attendance, performance, users
   const [employees, setEmployees] = useState([])
   const [attendanceLogs, setAttendanceLogs] = useState([])
@@ -292,6 +293,16 @@ export default function StaffManagerView() {
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium transition-all shadow-sm"
+                title="Back to Dashboard"
+              >
+                <ArrowLeft className="w-4 h-4 text-orange-400" />
+                <span>Back</span>
+              </button>
+            )}
             <div className="p-3.5 rounded-xl bg-orange-950/40 border border-orange-700/60 text-orange-400">
               <Users className="w-8 h-8" />
             </div>
