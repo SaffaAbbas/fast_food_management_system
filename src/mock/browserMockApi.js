@@ -6,6 +6,31 @@
 
 import * as DUMMY from './dummyData.js'
 
+const MOCK_SEED_VERSION = 13
+
+function isDirectImageSrc(value) {
+  return (
+    typeof value === 'string' &&
+    (value.startsWith('data:image/') ||
+      value.startsWith('http://') ||
+      value.startsWith('https://') ||
+      value.startsWith('/'))
+  )
+}
+
+function mergeCatalogImages(existing, seeded) {
+  const byId = Object.fromEntries(seeded.map((item) => [item.id, item]))
+  const merged = existing.map((item) => {
+    const seed = byId[item.id]
+    if (seed?.image_url) return { ...item, image_url: seed.image_url }
+    return item
+  })
+  for (const seed of seeded) {
+    if (!merged.some((item) => item.id === seed.id)) merged.push(seed)
+  }
+  return merged
+}
+
 function getStorage(key, defaultVal) {
   try {
     const val = localStorage.getItem(`pos_mock_${key}`)
@@ -63,6 +88,15 @@ export function initBrowserMockApi() {
   let riders = getStorage('riders', DUMMY.INITIAL_RIDERS)
   let deliveries = getStorage('deliveries', DUMMY.INITIAL_DELIVERIES)
   let orders = getStorage('orders', DUMMY.INITIAL_ORDERS)
+  let mediaStore = getStorage('media', {})
+
+  if (getStorage('seed_version', 0) < MOCK_SEED_VERSION) {
+    products = mergeCatalogImages(products, DUMMY.INITIAL_PRODUCTS)
+    combos = mergeCatalogImages(combos, DUMMY.INITIAL_COMBOS)
+    setStorage('products', products)
+    setStorage('combos', combos)
+    setStorage('seed_version', MOCK_SEED_VERSION)
+  }
 
   const mockApi = {
     app: {
@@ -225,13 +259,22 @@ export function initBrowserMockApi() {
         return res
       },
       createProduct: async (data) => {
-        const newProd = { id: `prd-${Date.now()}`, ...data, is_available: 1 }
+        const newProd = {
+          id: `prd-${Date.now()}`,
+          ...data,
+          image_url: data.imageUrl || data.image_url || null,
+          is_available: 1,
+        }
         products = [...products, newProd]
         setStorage('products', products)
         return newProd
       },
       updateProduct: async (data) => {
-        products = products.map((p) => (p.id === data.id ? { ...p, ...data } : p))
+        products = products.map((p) =>
+          p.id === data.id
+            ? { ...p, ...data, image_url: data.imageUrl !== undefined ? data.imageUrl : data.image_url ?? p.image_url }
+            : p
+        )
         setStorage('products', products)
         return true
       },
@@ -1095,8 +1138,17 @@ export function initBrowserMockApi() {
     },
 
     media: {
-      save: async ({ dataUrl }) => ({ id: `media-${Date.now()}`, dataUrl }),
-      getDataUrl: async (id) => (id && String(id).startsWith('data:') ? id : null),
+      save: async ({ dataUrl }) => {
+        const id = `media-${Date.now()}`
+        mediaStore = { ...mediaStore, [id]: dataUrl }
+        setStorage('media', mediaStore)
+        return { id, dataUrl }
+      },
+      getDataUrl: async (id) => {
+        if (!id) return null
+        if (isDirectImageSrc(id)) return id
+        return mediaStore[id] || null
+      },
     },
 
     settings: {

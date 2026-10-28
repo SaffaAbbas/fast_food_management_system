@@ -2,6 +2,16 @@ import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImagePlus, X, ZoomIn } from 'lucide-react'
 
+function isDirectImageSrc(value) {
+  if (!value || typeof value !== 'string') return false
+  return (
+    value.startsWith('data:image/') ||
+    value.startsWith('http://') ||
+    value.startsWith('https://') ||
+    value.startsWith('/')
+  )
+}
+
 export default function ImagePicker({ label = 'Photo', value, onChange }) {
   const [preview, setPreview] = useState(null)
   const [error, setError] = useState(null)
@@ -13,7 +23,7 @@ export default function ImagePicker({ label = 'Photo', value, onChange }) {
         setPreview(null)
         return
       }
-      if (typeof value === 'string' && value.startsWith('data:image/')) {
+      if (isDirectImageSrc(value)) {
         setPreview(value)
         return
       }
@@ -102,7 +112,7 @@ export function EntityImage({
         setSrc(null)
         return
       }
-      if (id.startsWith('data:image/')) {
+      if (isDirectImageSrc(id)) {
         setSrc(id)
         return
       }

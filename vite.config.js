@@ -3,34 +3,40 @@ import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 
+const isWebDeploy = Boolean(process.env.VERCEL || process.env.WEB_ONLY)
+
 export default defineConfig({
   plugins: [
     react(),
-    electron({
-      main: {
-        entry: 'electron/main.js',
-        vite: {
-          build: {
-            rollupOptions: {
-              external: ['better-sqlite3'],
-            },
-          },
-        },
-      },
-      preload: {
-        input: path.join(__dirname, 'electron/preload.js'),
-        vite: {
-          build: {
-            rollupOptions: {
-              output: {
-                format: 'cjs',
-                entryFileNames: 'preload.cjs',
+    ...(!isWebDeploy
+      ? [
+          electron({
+            main: {
+              entry: 'electron/main.js',
+              vite: {
+                build: {
+                  rollupOptions: {
+                    external: ['better-sqlite3'],
+                  },
+                },
               },
             },
-          },
-        },
-      },
-    }),
+            preload: {
+              input: path.join(__dirname, 'electron/preload.js'),
+              vite: {
+                build: {
+                  rollupOptions: {
+                    output: {
+                      format: 'cjs',
+                      entryFileNames: 'preload.cjs',
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        ]
+      : []),
   ],
   resolve: {
     alias: {
