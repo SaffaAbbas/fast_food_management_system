@@ -1,8 +1,11 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import { runMigrations } from './migrator.js'
 import { seedDatabase } from './seeds.js'
+
+const require = createRequire(import.meta.url)
 
 let dbInstance = null
 let dbPath = null
@@ -73,9 +76,12 @@ export function initDatabase(options = {}) {
   const migrationResult = runMigrations(dbInstance)
   console.log(`[Database] Migrations applied: ${migrationResult.appliedCount}, Current Version: ${migrationResult.currentVersion}`)
 
-  // Seed default data if requested or if fresh database
+  // Seed default data if requested or if fresh database.
+  // Demo staff accounts are only created when tests (or POS_DEMO_USERS=1) opt in.
   if (options.seed !== false && migrationResult.appliedCount > 0) {
-    seedDatabase(dbInstance)
+    seedDatabase(dbInstance, {
+      includeDemoUsers: options.includeDemoUsers ?? (options.seed === true || process.env.POS_DEMO_USERS === '1'),
+    })
   }
 
   // Self-healing database integrity check & index repair

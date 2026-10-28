@@ -2,7 +2,6 @@ import { ipcMain } from 'electron'
 import { IPC_CHANNELS } from './channels.js'
 import { authRepository } from '../db/repositories/authRepository.js'
 import { dashboardRepository } from '../db/repositories/dashboardRepository.js'
-import { getDb } from '../db/index.js'
 
 export function registerAuthAndDashboardHandlers() {
   // Login with Password
@@ -36,12 +35,25 @@ export function registerAuthAndDashboardHandlers() {
     return authRepository.getLoginUsers()
   })
 
+  ipcMain.handle('auth:needs-setup', async () => {
+    return authRepository.needsSetup()
+  })
+
+  ipcMain.handle('auth:complete-setup', async (_event, payload) => {
+    return authRepository.completeInitialSetup(payload || {})
+  })
+
   // Dashboard Metrics
   ipcMain.handle('dashboard:get-metrics', async (_event, { branchId, rangeType } = {}) => {
     try {
-      const db = getDb()
       const session = authRepository.getCurrentSession()
-      const activeBranchId = branchId || session?.branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+      if (!session) throw new Error('Unauthorized: Please sign in.')
+      if (session.roleCode !== 'super_admin' && !session.permissions?.includes('dashboard:view')) {
+        throw new Error("Unauthorized: Requires 'dashboard:view' permission.")
+      }
+      const activeBranchId = session.roleCode === 'super_admin'
+        ? (branchId || session.branchId)
+        : session.branchId
       return dashboardRepository.getMetrics(activeBranchId, rangeType || 'today')
     } catch (err) {
       console.error('[IPC dashboard:get-metrics] Error:', err.message)

@@ -1,14 +1,31 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog } from 'electron'
+import fs from 'node:fs'
 import { IPC_CHANNELS } from './channels.js'
 import { getDb, resolveDatabasePath, backupDatabase, restoreDatabase } from '../db/index.js'
 import { settingsRepository } from '../db/repositories/settingsRepository.js'
 import { productRepository } from '../db/repositories/productRepository.js'
 import { tableRepository } from '../db/repositories/tableRepository.js'
 import { orderRepository } from '../db/repositories/orderRepository.js'
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
+
+function assertSqliteBackup(filePath) {
+  if (!filePath) throw new Error('Backup file path is required.')
+  if (!fs.existsSync(filePath)) throw new Error(`Backup file not found at: ${filePath}`)
+  const fd = fs.openSync(filePath, 'r')
+  try {
+    const header = Buffer.alloc(16)
+    fs.readSync(fd, header, 0, 16, 0)
+    if (header.toString('utf8') !== 'SQLite format 3\0') {
+      throw new Error('The selected file is not a valid SQLite database backup.')
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+}
 
 export function registerDatabaseIpcHandlers() {
-  // Database status and diagnostics
   ipcMain.handle(IPC_CHANNELS.DB_STATUS, async () => {
+    requireSession()
     try {
       const db = getDb()
       const versionRow = db.prepare('SELECT MAX(version) as version FROM schema_migrations').get()
@@ -28,6 +45,7 @@ export function registerDatabaseIpcHandlers() {
         schemaVersion: versionRow?.version || 1,
         tablesCount,
         databasePath: resolveDatabasePath(),
+        dbPath: resolveDatabasePath(),
         foreignKeys: fk.foreign_keys === 1,
         journalMode: journal.journal_mode,
         integrity: integrity.integrity_check,
@@ -47,53 +65,58 @@ export function registerDatabaseIpcHandlers() {
     }
   })
 
-  // Settings
   ipcMain.handle('db:get-settings', async () => {
+    requireSession()
     return settingsRepository.getAll()
   })
 
-  // Products & Menu
   ipcMain.handle('db:get-categories', async (_event, branchId) => {
-    const db = getDb()
-    const activeBranchId = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-    return productRepository.getCategories(activeBranchId)
+    requireSession()
+    return productRepository.getCategories(getActiveBranchId(branchId))
   })
 
-  ipcMain.handle('db:get-products', async (_event, { branchId, categoryId, searchQuery }) => {
-    const db = getDb()
-    const activeBranchId = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-    return productRepository.getProducts(activeBranchId, categoryId, searchQuery)
+  ipcMain.handle('db:get-products', async (_event, { branchId, categoryId, searchQuery } = {}) => {
+    requireSession()
+    return productRepository.getProducts(getActiveBranchId(branchId), categoryId, searchQuery)
   })
 
-  // Floors & Tables
   ipcMain.handle('db:get-tables', async (_event, branchId) => {
-    const db = getDb()
-    const activeBranchId = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-    return tableRepository.getFloorsWithTables(activeBranchId)
+    requireSession()
+    return tableRepository.getFloorsWithTables(getActiveBranchId(branchId))
   })
 
-  // Orders
   ipcMain.handle('db:create-order', async (_event, orderData) => {
-    const db = getDb()
-    const activeBranchId = orderData.branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    requirePermission('pos:create_order')
     return orderRepository.createOrder({
       ...orderData,
-      branchId: activeBranchId,
+      branchId: getActiveBranchId(orderData.branchId),
     })
   })
 
   ipcMain.handle('db:get-recent-orders', async (_event, { branchId, limit } = {}) => {
-    const db = getDb()
-    const activeBranchId = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-    return orderRepository.getRecentOrders(activeBranchId, limit || 20)
+    requireSession()
+    return orderRepository.getRecentOrders(getActiveBranchId(branchId), limit || 20)
   })
 
-  // Backup & Restore
   ipcMain.handle(IPC_CHANNELS.DB_BACKUP, async (_event, destinationPath) => {
+    requirePermission('settings:manage')
     return backupDatabase(destinationPath)
   })
 
+  ipcMain.handle('db:choose-backup-file', async () => {
+    requirePermission('settings:manage')
+    const result = await dialog.showOpenDialog({
+      title: 'Select SQLite Backup',
+      properties: ['openFile'],
+      filters: [{ name: 'SQLite Database', extensions: ['sqlite', 'db', 'sqlite3'] }],
+    })
+    if (result.canceled || !result.filePaths?.[0]) return null
+    return result.filePaths[0]
+  })
+
   ipcMain.handle(IPC_CHANNELS.DB_RESTORE, async (_event, backupFilePath) => {
+    requirePermission('settings:manage')
+    assertSqliteBackup(backupFilePath)
     return restoreDatabase(backupFilePath)
   })
 }

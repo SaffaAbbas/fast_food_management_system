@@ -31,6 +31,8 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
   // Modals
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [transferSourceTable, setTransferSourceTable] = useState(null)
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false)
+  const [mergeSourceTable, setMergeSourceTable] = useState(null)
 
   const [isAddTableModalOpen, setIsAddTableModalOpen] = useState(false)
   const [editingTable, setEditingTable] = useState(null)
@@ -325,6 +327,16 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                       >
                         <ArrowRightLeft className="w-3.5 h-3.5 text-amber-400" />
                       </button>
+                      <button
+                        onClick={() => {
+                          setMergeSourceTable(table)
+                          setIsMergeModalOpen(true)
+                        }}
+                        title="Merge this bill into another occupied table"
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-[10px] font-bold px-2"
+                      >
+                        Merge
+                      </button>
                     </>
                   )}
 
@@ -357,6 +369,23 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
       {/* ========================================================================= */}
       {/* MODAL: TRANSFER TABLE */}
       {/* ========================================================================= */}
+      {isMergeModalOpen && mergeSourceTable && (
+        <MergeTablesModal
+          sourceTable={mergeSourceTable}
+          allTables={floors.flatMap((f) => f.tables || [])}
+          onClose={() => {
+            setIsMergeModalOpen(false)
+            setMergeSourceTable(null)
+          }}
+          onSuccess={() => {
+            setIsMergeModalOpen(false)
+            setMergeSourceTable(null)
+            showToast('success', 'Tables merged. Source order was archived as cancelled.')
+            loadFloorsAndTables()
+          }}
+        />
+      )}
+
       {isTransferModalOpen && transferSourceTable && (
         <TransferTableModal
           sourceTable={transferSourceTable}
@@ -416,6 +445,60 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
 // ============================================================================
 // SUB-COMPONENT: TRANSFER TABLE MODAL
 // ============================================================================
+function MergeTablesModal({ sourceTable, allTables, onClose, onSuccess }) {
+  const occupiedTables = allTables.filter((t) => t.id !== sourceTable.id && t.status === 'OCCUPIED' && t.current_order_id)
+  const [targetTableId, setTargetTableId] = useState(occupiedTables[0]?.id || '')
+  const [reason, setReason] = useState('Combine party onto one bill')
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const handleMerge = async (e) => {
+    e.preventDefault()
+    if (!targetTableId) {
+      setErrorMsg('Select another occupied table.')
+      return
+    }
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      await window.api.tables.mergeTables({
+        sourceTableId: sourceTable.id,
+        targetTableId,
+        reason: reason.trim(),
+      })
+      onSuccess()
+    } catch (err) {
+      setErrorMsg(err.message || 'Merge failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={handleMerge} className="bg-slate-950 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4">
+        <h3 className="font-bold text-white">Merge table {sourceTable.table_number}</h3>
+        <p className="text-xs text-slate-400">Line items move onto the surviving occupied table. The source order is cancelled with an audit note.</p>
+        {errorMsg && <div className="text-xs text-rose-300">{errorMsg}</div>}
+        {occupiedTables.length === 0 ? (
+          <p className="text-xs text-amber-300">No other occupied table is available to merge into.</p>
+        ) : (
+          <select value={targetTableId} onChange={(e) => setTargetTableId(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white">
+            {occupiedTables.map((t) => (
+              <option key={t.id} value={t.id}>Table {t.table_number} — {t.current_order_number}</option>
+            ))}
+          </select>
+        )}
+        <input value={reason} onChange={(e) => setReason(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white" />
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs">Cancel</button>
+          <button disabled={loading || occupiedTables.length === 0} className="px-4 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold">Merge bills</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function TransferTableModal({ sourceTable, allTables, onClose, onSuccess }) {
   const availableTables = allTables.filter((t) => t.id !== sourceTable.id && t.status === 'AVAILABLE')
   const [targetTableId, setTargetTableId] = useState(availableTables[0]?.id || '')

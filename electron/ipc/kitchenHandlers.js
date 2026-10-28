@@ -1,21 +1,11 @@
 import { ipcMain } from 'electron'
 import { kitchenRepository } from '../db/repositories/kitchenRepository.js'
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
 import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
+import { broadcast } from './localEvents.js'
 
 function assertPermission(permCode) {
-  const session = authRepository.getCurrentSession()
-  if (session && session.roleCode !== 'super_admin' && !session.permissions?.includes(permCode)) {
-    throw new Error(`Unauthorized: Requires '${permCode}' permission.`)
-  }
+  return requirePermission(permCode)
 }
 
 export function registerKitchenIpcHandlers() {
@@ -33,27 +23,33 @@ export function registerKitchenIpcHandlers() {
   ipcMain.handle('kitchen:update-item-status', async (_event, { orderItemId, status }) => {
     assertPermission('kitchen:view')
     const session = authRepository.getCurrentSession()
-    return kitchenRepository.updateOrderItemStatus({
+    const result = kitchenRepository.updateOrderItemStatus({
       orderItemId,
       status,
       userId: session?.id || null,
     })
+    broadcast('kitchen:order-update', { orderItemId, status })
+    return result
   })
 
   // Update whole order status (e.g. Preparing -> Ready -> Completed)
   ipcMain.handle('kitchen:update-order-status', async (_event, { orderId, status, notes }) => {
     assertPermission('kitchen:view')
     const session = authRepository.getCurrentSession()
-    return kitchenRepository.updateOrderStatus({
+    const result = kitchenRepository.updateOrderStatus({
       orderId,
       status,
       userId: session?.id || null,
       notes,
     })
+    broadcast('kitchen:order-update', { orderId, status })
+    broadcast('pos:status-change', { orderId, status })
+    return result
   })
 
   // Get active stations
   ipcMain.handle('kitchen:get-stations', async (_event, branchId) => {
+    requireSession()
     return kitchenRepository.getStations(getActiveBranchId(branchId))
   })
 

@@ -2,22 +2,10 @@ import { ipcMain } from 'electron'
 import { customerRepository } from '../db/repositories/customerRepository.js'
 import { reservationRepository } from '../db/repositories/reservationRepository.js'
 import { couponRepository } from '../db/repositories/couponRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
+import { requirePermission, requireAnyPermission, requireSession, getActiveBranchId } from './authGuard.js'
 
 function assertPermission(permCode) {
-  const session = authRepository.getCurrentSession()
-  if (session && session.roleCode !== 'super_admin' && !session.permissions?.includes(permCode)) {
-    throw new Error(`Unauthorized: Requires '${permCode}' permission.`)
-  }
+  return requirePermission(permCode)
 }
 
 export function registerCustomerIpcHandlers() {
@@ -25,6 +13,7 @@ export function registerCustomerIpcHandlers() {
   // CUSTOMER CRM & LOYALTY
   // ==========================================
   ipcMain.handle('customer:get-customers', async (_event, params = {}) => {
+    requireSession()
     return customerRepository.getCustomers(
       getActiveBranchId(params.branchId),
       params.searchQuery,
@@ -38,6 +27,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('customer:create', async (_event, customerData) => {
+    requireSession()
     const branchId = getActiveBranchId(customerData.branchId)
     return customerRepository.createCustomer({
       ...customerData,
@@ -50,6 +40,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('customer:adjust-loyalty', async (_event, data) => {
+    requirePermission('pos:process_refund')
     const branchId = getActiveBranchId(data.branchId)
     return customerRepository.adjustLoyaltyPoints({ ...data, branchId })
   })
@@ -67,6 +58,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('reservation:create', async (_event, data) => {
+    requireAnyPermission(['reservations:manage', 'pos:create_order'])
     const branchId = getActiveBranchId(data.branchId)
     return reservationRepository.createReservation({ ...data, branchId })
   })

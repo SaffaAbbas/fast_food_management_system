@@ -24,6 +24,7 @@ import {
   Check,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker from '../../components/ImagePicker.jsx'
 
 export default function StaffManagerView({ onBack }) {
   const [activeTab, setActiveTab] = useState('roster') // roster, attendance, performance, users
@@ -64,6 +65,7 @@ export default function StaffManagerView({ onBack }) {
     hireDate: new Date().toISOString().slice(0, 10),
     emergencyContact: '',
     notes: '',
+    imageUrl: null,
   })
 
   // Clock In/Out Form State
@@ -76,8 +78,9 @@ export default function StaffManagerView({ onBack }) {
     username: '',
     displayName: '',
     roleId: '',
-    pin: '1234',
+    pin: '',
     isActive: true,
+    imageUrl: null,
   })
 
   useEffect(() => {
@@ -197,6 +200,7 @@ export default function StaffManagerView({ onBack }) {
       hireDate: emp.hire_date || '',
       emergencyContact: emp.emergency_contact || '',
       notes: emp.notes || '',
+      imageUrl: emp.image_url || null,
     })
     setShowAddEmpModal(true)
   }
@@ -255,6 +259,7 @@ export default function StaffManagerView({ onBack }) {
           roleId: userForm.roleId,
           pin: userForm.pin,
           isActive: userForm.isActive,
+          imageUrl: userForm.imageUrl,
         })
         setSuccessMsg(`User ${userForm.displayName} updated!`)
       } else {
@@ -751,6 +756,7 @@ export default function StaffManagerView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveEmployee} className="space-y-3.5 text-xs">
+              <ImagePicker label="Employee photo" value={empForm.imageUrl} onChange={(imageUrl) => setEmpForm({ ...empForm, imageUrl })} />
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-300 block mb-1">First Name *</label>
@@ -963,6 +969,7 @@ export default function StaffManagerView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveUser} className="space-y-3.5 text-xs">
+              <ImagePicker label="User photo" value={userForm.imageUrl} onChange={(imageUrl) => setUserForm({ ...userForm, imageUrl })} />
               {!editingUser && (
                 <div>
                   <label className="font-semibold text-slate-300 block mb-1">Username *</label>

@@ -10,7 +10,8 @@ function uuid() {
  * Seed initial operational data into the SQLite database
  * @param {import('better-sqlite3').Database} db 
  */
-export function seedDatabase(db) {
+export function seedDatabase(db, options = {}) {
+  const includeDemoUsers = options.includeDemoUsers === true
   console.log('[Database Seed] Seeding default operational data...')
 
   const seedTx = db.transaction(() => {
@@ -45,11 +46,15 @@ export function seedDatabase(db) {
     // 2. Default Roles
     const roles = [
       { code: 'super_admin', name: 'Super Administrator', desc: 'Full system and branch access', is_system: 1 },
+      { code: 'branch_admin', name: 'Branch Admin / Owner', desc: 'Full branch management without global system locks', is_system: 1 },
       { code: 'manager', name: 'Restaurant Manager', desc: 'Orders, inventory, staff, discounts and reports', is_system: 1 },
       { code: 'cashier', name: 'Cashier', desc: 'POS order entry, payments and receipts', is_system: 1 },
       { code: 'waiter', name: 'Waiter', desc: 'Dine-in table orders and customer service', is_system: 1 },
       { code: 'kitchen_staff', name: 'Kitchen Staff', desc: 'Kitchen display screen and order preparation', is_system: 1 },
       { code: 'inventory_officer', name: 'Inventory Officer', desc: 'Stock movements, purchases and ingredients', is_system: 1 },
+      { code: 'accountant', name: 'Accountant', desc: 'Expenses, settlements and financial reports', is_system: 1 },
+      { code: 'delivery_rider', name: 'Delivery Rider', desc: 'Assigned deliveries and rider status updates', is_system: 1 },
+      { code: 'receptionist', name: 'Reception / Reservation', desc: 'Reservations, customers and table coordination', is_system: 1 },
     ]
 
     const roleMap = {}
@@ -77,6 +82,10 @@ export function seedDatabase(db) {
       { code: 'staff:manage', name: 'Manage Staff & Roles', module: 'STAFF' },
       { code: 'settings:manage', name: 'Manage System Settings', module: 'SETTINGS' },
       { code: 'kitchen:view', name: 'Access Kitchen Display (KDS)', module: 'KITCHEN' },
+      { code: 'reservations:manage', name: 'Manage Reservations', module: 'RESERVATIONS' },
+      { code: 'delivery:manage', name: 'Manage Delivery & Riders', module: 'DELIVERY' },
+      { code: 'expenses:manage', name: 'Manage Expenses', module: 'EXPENSES' },
+      { code: 'cash:manage', name: 'Manage Cash Drawer', module: 'CASH' },
     ]
 
     for (const p of permissions) {
@@ -94,6 +103,11 @@ export function seedDatabase(db) {
           .run(roleMap.super_admin, permId)
       }
 
+      if (roleMap.branch_admin && permId && p.code !== 'settings:manage') {
+        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
+          .run(roleMap.branch_admin, permId)
+      }
+
       // Link manager
       if (roleMap.manager && permId && p.code !== 'settings:manage') {
         db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
@@ -101,13 +115,13 @@ export function seedDatabase(db) {
       }
 
       // Link cashier
-      if (roleMap.cashier && permId && ['dashboard:view', 'pos:create_order'].includes(p.code)) {
+      if (roleMap.cashier && permId && ['dashboard:view', 'pos:create_order', 'pos:apply_discount', 'cash:manage', 'delivery:manage'].includes(p.code)) {
         db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
           .run(roleMap.cashier, permId)
       }
 
       // Link waiter
-      if (roleMap.waiter && permId && ['pos:create_order'].includes(p.code)) {
+      if (roleMap.waiter && permId && ['pos:create_order', 'reservations:manage'].includes(p.code)) {
         db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
           .run(roleMap.waiter, permId)
       }
@@ -117,10 +131,30 @@ export function seedDatabase(db) {
         db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
           .run(roleMap.kitchen_staff, permId)
       }
+
+      if (roleMap.inventory_officer && permId && ['inventory:manage', 'dashboard:view'].includes(p.code)) {
+        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
+          .run(roleMap.inventory_officer, permId)
+      }
+
+      if (roleMap.accountant && permId && ['reports:view', 'dashboard:view', 'expenses:manage'].includes(p.code)) {
+        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
+          .run(roleMap.accountant, permId)
+      }
+
+      if (roleMap.delivery_rider && permId && ['delivery:manage'].includes(p.code)) {
+        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
+          .run(roleMap.delivery_rider, permId)
+      }
+
+      if (roleMap.receptionist && permId && ['pos:create_order', 'dashboard:view', 'reservations:manage'].includes(p.code)) {
+        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
+          .run(roleMap.receptionist, permId)
+      }
     }
 
-    // 4. Default Staff Users with Hashed Credentials
-    const staffUsers = [
+    // 4. Optional demo staff — production first-run uses the setup wizard instead
+    const staffUsers = includeDemoUsers ? [
       {
         roleCode: 'super_admin',
         user: 'admin',
@@ -156,15 +190,14 @@ export function seedDatabase(db) {
         pin: '2222',
         pass: null,
       },
-    ]
+    ] : []
 
     const now = new Date().toISOString()
     for (const s of staffUsers) {
       const roleId = roleMap[s.roleCode] || null
       const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(s.user)
       if (existingUser) {
-        db.prepare('UPDATE users SET branch_id = ?, role_id = ?, pin_hash = ?, password_hash = ?, is_active = 1 WHERE id = ?')
-          .run(branchId, roleId, s.pin ? hashSecret(s.pin) : null, s.pass ? hashSecret(s.pass) : null, existingUser.id)
+        continue
       } else {
         db.prepare(`
           INSERT INTO users (id, branch_id, role_id, username, display_name, password_hash, pin_hash, is_active, created_at, updated_at)

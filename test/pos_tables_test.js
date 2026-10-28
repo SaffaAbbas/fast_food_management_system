@@ -211,6 +211,65 @@ async function runPosAndTableTests() {
   console.log(`✓ Table ${table1.table_number} released back to: ${t1AfterCancel.status}`)
   if (t1AfterCancel.status !== 'AVAILABLE') throw new Error('Table was not released after order cancellation!')
 
+  console.log('\n--- Test 9: Duplicate payment blocked + refund ---')
+  let duplicateBlocked = false
+  try {
+    orderRepository.processPayment({
+      orderId: paymentRes.id,
+      branchId: branch.id,
+      cashierId: admin.id,
+      payments: [{ paymentMethod: 'CASH', amountCents: 100 }],
+    })
+  } catch (e) {
+    duplicateBlocked = true
+    console.log(`✓ Duplicate completion blocked: ${e.message}`)
+  }
+  if (!duplicateBlocked) throw new Error('Duplicate sale completion was not blocked!')
+
+  const refunded = orderRepository.refundOrder({
+    orderId: paymentRes.id,
+    amountCents: 2462,
+    reason: 'Quality complaint',
+    restock: true,
+    cashierId: admin.id,
+  })
+  console.log(`✓ Refund posted, status=${refunded.status}, refunded_cents=${refunded.refunded_cents}`)
+  if (refunded.status !== 'REFUNDED') throw new Error('Full refund did not mark order REFUNDED')
+
+  console.log('\n--- Test 10: Merge occupied tables ---')
+  const mergeA = orderRepository.createOrder({
+    branchId: branch.id,
+    orderNumber: 'ORD-MERGE-A',
+    orderType: 'DINE_IN',
+    tableId: table1.id,
+    cashierId: admin.id,
+    subtotalCents: 500,
+    totalCents: 500,
+    items: [{ productId: sampleProducts[0].id, name: sampleProducts[0].name, quantity: 1, unitPriceCents: 500, totalCents: 500 }],
+  })
+  const mergeB = orderRepository.createOrder({
+    branchId: branch.id,
+    orderNumber: 'ORD-MERGE-B',
+    orderType: 'DINE_IN',
+    tableId: table2.id,
+    cashierId: admin.id,
+    subtotalCents: 700,
+    totalCents: 700,
+    items: [{ productId: sampleProducts[0].id, name: sampleProducts[0].name, quantity: 1, unitPriceCents: 700, totalCents: 700 }],
+  })
+  tableRepository.updateTableStatus(table1.id, 'OCCUPIED', mergeA.id)
+  tableRepository.updateTableStatus(table2.id, 'OCCUPIED', mergeB.id)
+  const mergeRes = tableRepository.mergeTables({
+    sourceTableId: table1.id,
+    targetTableId: table2.id,
+    reason: 'Same party',
+  })
+  console.log(`✓ Merged into order ${mergeRes.survivingOrderId}`)
+  const sourceAfterMerge = db.prepare('SELECT status FROM orders WHERE id = ?').get(mergeA.id)
+  const targetAfterMerge = db.prepare('SELECT total_cents FROM orders WHERE id = ?').get(mergeB.id)
+  if (sourceAfterMerge.status !== 'CANCELLED') throw new Error('Source merge order should be cancelled')
+  if (targetAfterMerge.total_cents !== 1200) throw new Error(`Expected merged total 1200, got ${targetAfterMerge.total_cents}`)
+
   // Clean up
   closeDatabase()
   try {

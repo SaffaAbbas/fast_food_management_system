@@ -1,94 +1,105 @@
 import { ipcMain } from 'electron'
 import { deliveryRepository } from '../db/repositories/deliveryRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
+import { requirePermission, requireAnyPermission, requireSession, getActiveBranchId } from './authGuard.js'
 
 export function registerDeliveryHandlers() {
-  // Zones
   ipcMain.handle('delivery:get-zones', async (_event, branchId) => {
-    return deliveryRepository.getZones(branchId)
+    requireSession()
+    return deliveryRepository.getZones(getActiveBranchId(branchId))
   })
 
   ipcMain.handle('delivery:create-zone', async (_event, data) => {
-    return deliveryRepository.createZone(data)
+    requirePermission('delivery:manage')
+    return deliveryRepository.createZone({ ...data, branchId: getActiveBranchId(data.branchId) })
   })
 
   ipcMain.handle('delivery:update-zone', async (_event, { id, data }) => {
+    requirePermission('delivery:manage')
     return deliveryRepository.updateZone(id, data)
   })
 
-  // Riders
   ipcMain.handle('delivery:get-riders', async (_event, { branchId, status } = {}) => {
-    return deliveryRepository.getRiders(branchId, status)
+    requireSession()
+    return deliveryRepository.getRiders(getActiveBranchId(branchId), status)
   })
 
   ipcMain.handle('delivery:get-rider-by-id', async (_event, id) => {
+    requireSession()
     return deliveryRepository.getRiderById(id)
   })
 
   ipcMain.handle('delivery:create-rider', async (_event, data) => {
-    return deliveryRepository.createRider(data)
+    requirePermission('delivery:manage')
+    return deliveryRepository.createRider({ ...data, branchId: getActiveBranchId(data.branchId) })
   })
 
   ipcMain.handle('delivery:update-rider', async (_event, { id, data }) => {
+    requirePermission('delivery:manage')
     return deliveryRepository.updateRider(id, data)
   })
 
   ipcMain.handle('delivery:update-rider-status', async (_event, { id, status }) => {
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
     return deliveryRepository.updateRiderStatus(id, status)
   })
 
-  // Deliveries / Dispatches
   ipcMain.handle('delivery:get-deliveries', async (_event, { branchId, filters } = {}) => {
-    return deliveryRepository.getDeliveries(branchId, filters)
+    requireSession()
+    return deliveryRepository.getDeliveries(getActiveBranchId(branchId), filters)
   })
 
   ipcMain.handle('delivery:get-delivery-by-id', async (_event, id) => {
+    requireSession()
     return deliveryRepository.getDeliveryById(id)
   })
 
   ipcMain.handle('delivery:create-delivery', async (_event, data) => {
-    return deliveryRepository.createDelivery(data)
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
+    return deliveryRepository.createDelivery({ ...data, branchId: getActiveBranchId(data.branchId) })
   })
 
   ipcMain.handle('delivery:assign-rider', async (_event, { deliveryId, riderId }) => {
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
     return deliveryRepository.assignRider(deliveryId, riderId)
   })
 
   ipcMain.handle('delivery:dispatch', async (_event, deliveryId) => {
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
     return deliveryRepository.dispatchDelivery(deliveryId)
   })
 
   ipcMain.handle('delivery:complete', async (_event, { deliveryId, codCollectedCents }) => {
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
     return deliveryRepository.completeDelivery(deliveryId, { codCollectedCents })
   })
 
   ipcMain.handle('delivery:fail', async (_event, { deliveryId, reason }) => {
+    requireAnyPermission(['delivery:manage', 'pos:create_order'])
     return deliveryRepository.failDelivery(deliveryId, reason)
   })
 
-  // Cash On Delivery (COD) Settlements
   ipcMain.handle('delivery:get-rider-pending-cod', async (_event, riderId) => {
+    requireSession()
     return deliveryRepository.getRiderPendingCod(riderId)
   })
 
   ipcMain.handle('delivery:settle-rider-cod', async (_event, { branchId, riderId, notes }) => {
-    const session = authRepository.getCurrentSession()
-    const settledByUserId = session?.userId
-    if (!settledByUserId) throw new Error('Authentication required to settle rider funds.')
+    const session = requireAnyPermission(['delivery:manage', 'cash:manage', 'pos:create_order'])
     return deliveryRepository.settleRiderCod({
-      branchId,
+      branchId: getActiveBranchId(branchId),
       riderId,
-      settledByUserId,
+      settledByUserId: session.id,
       notes,
     })
   })
 
   ipcMain.handle('delivery:get-settlement-history', async (_event, { branchId, params } = {}) => {
-    return deliveryRepository.getSettlementHistory(branchId, params)
+    requireSession()
+    return deliveryRepository.getSettlementHistory(getActiveBranchId(branchId), params)
   })
 
-  // Summary Metrics
   ipcMain.handle('delivery:get-summary', async (_event, branchId) => {
-    return deliveryRepository.getSummary(branchId)
+    requireSession()
+    return deliveryRepository.getSummary(getActiveBranchId(branchId))
   })
 }

@@ -1,26 +1,15 @@
 import { ipcMain } from 'electron'
 import { productRepository } from '../db/repositories/productRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
 
 function assertPermission(permCode) {
-  const session = authRepository.getCurrentSession()
-  if (session && session.roleCode !== 'super_admin' && !session.permissions?.includes(permCode)) {
-    throw new Error(`Unauthorized: Requires '${permCode}' permission.`)
-  }
+  return requirePermission(permCode)
 }
 
 export function registerProductIpcHandlers() {
   // Categories
   ipcMain.handle('product:get-categories', async (_event, branchId) => {
+    requireSession()
     return productRepository.getCategories(getActiveBranchId(branchId))
   })
 
@@ -44,6 +33,7 @@ export function registerProductIpcHandlers() {
 
   // Products
   ipcMain.handle('product:get-products', async (_event, { branchId, categoryId, searchQuery, includeInactive } = {}) => {
+    requireSession()
     return productRepository.getProducts(getActiveBranchId(branchId), categoryId, searchQuery, includeInactive)
   })
 

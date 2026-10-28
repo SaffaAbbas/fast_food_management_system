@@ -332,4 +332,167 @@ export const reportsRepository = {
       `)
       .all(targetBranch, limit)
   },
+
+  getStaffSales(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    return db.prepare(`
+      SELECT
+        u.id as user_id,
+        u.display_name,
+        COALESCE(r.name, 'Staff') as role_name,
+        COUNT(o.id) as order_count,
+        COALESCE(SUM(o.total_cents), 0) as sales_cents,
+        COALESCE(SUM(o.discount_cents), 0) as discount_cents,
+        COALESCE(SUM(o.refunded_cents), 0) as refunded_cents
+      FROM users u
+      LEFT JOIN roles r ON u.role_id = r.id
+      LEFT JOIN orders o ON o.cashier_id = u.id
+        AND o.branch_id = ?
+        AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+        AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z'
+      WHERE u.branch_id = ? OR u.branch_id IS NULL
+      GROUP BY u.id
+      ORDER BY sales_cents DESC
+    `).all(targetBranch, startDate, endDate, targetBranch)
+  },
+
+  getCustomerReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    return db.prepare(`
+      SELECT
+        c.id, c.name, c.phone, c.tag, c.loyalty_points, c.image_url,
+        COUNT(o.id) as order_count,
+        COALESCE(SUM(o.total_cents), 0) as spent_cents,
+        MAX(o.created_at) as last_order_at
+      FROM customers c
+      LEFT JOIN orders o ON o.customer_id = c.id
+        AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+        AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z'
+      WHERE c.branch_id = ? OR c.branch_id IS NULL
+      GROUP BY c.id
+      ORDER BY spent_cents DESC
+    `).all(startDate, endDate, targetBranch)
+  },
+
+  getKitchenReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    const byStatus = db.prepare(`
+      SELECT status, COUNT(*) as order_count
+      FROM orders
+      WHERE branch_id = ?
+        AND created_at >= ? AND created_at <= ? || 'T23:59:59.999Z'
+      GROUP BY status
+    `).all(targetBranch, startDate, endDate)
+    const avgPrep = db.prepare(`
+      SELECT AVG(
+        (julianday(updated_at) - julianday(created_at)) * 24 * 60
+      ) as avg_minutes
+      FROM orders
+      WHERE branch_id = ?
+        AND status IN ('READY', 'COMPLETED', 'SERVED', 'DELIVERED')
+        AND created_at >= ? AND created_at <= ? || 'T23:59:59.999Z'
+    `).get(targetBranch, startDate, endDate)
+    return { byStatus, avgPrepMinutes: Math.round(avgPrep?.avg_minutes || 0) }
+  },
+
+  getDeliveryReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    const riders = db.prepare(`
+      SELECT
+        r.id, r.name, r.vehicle_type, r.status, r.image_url,
+        COUNT(d.id) as delivery_count,
+        COALESCE(SUM(CASE WHEN d.status = 'DELIVERED' THEN 1 ELSE 0 END), 0) as delivered_count,
+        COALESCE(SUM(CASE WHEN d.status = 'FAILED' THEN 1 ELSE 0 END), 0) as failed_count,
+        COALESCE(SUM(d.cod_collected_cents), 0) as cod_cents
+      FROM riders r
+      LEFT JOIN deliveries d ON d.rider_id = r.id
+        AND d.created_at >= ? AND d.created_at <= ? || 'T23:59:59.999Z'
+      WHERE r.branch_id = ?
+      GROUP BY r.id
+      ORDER BY delivered_count DESC
+    `).all(startDate, endDate, targetBranch)
+    return { riders }
+  },
+
+  getInventoryReport(branchId) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const items = db.prepare(`
+      SELECT
+        i.id, i.name, i.current_stock, i.minimum_level, i.cost_per_unit_cents, i.image_url,
+        u.abbreviation as unit,
+        ROUND(i.current_stock * COALESCE(i.cost_per_unit_cents, 0), 0) as valuation_cents,
+        CASE WHEN i.current_stock <= i.minimum_level THEN 1 ELSE 0 END as is_low
+      FROM inventory_items i
+      LEFT JOIN inventory_units u ON i.unit_id = u.id
+      WHERE i.branch_id = ? OR i.branch_id IS NULL
+      ORDER BY is_low DESC, i.name ASC
+    `).all(targetBranch)
+    const totalValuation = items.reduce((s, i) => s + (i.valuation_cents || 0), 0)
+    return { items, totalValuationCents: totalValuation, lowStockCount: items.filter((i) => i.is_low).length }
+  },
+
+  getExpenseReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    return db.prepare(`
+      SELECT
+        COALESCE(ec.name, 'Uncategorized') as category_name,
+        COUNT(e.id) as expense_count,
+        COALESCE(SUM(e.amount_cents), 0) as total_cents
+      FROM expenses e
+      LEFT JOIN expense_categories ec ON e.category_id = ec.id
+      WHERE e.branch_id = ?
+        AND e.expense_date >= ? AND e.expense_date <= ?
+      GROUP BY ec.id, ec.name
+      ORDER BY total_cents DESC
+    `).all(targetBranch, startDate, endDate)
+  },
+
+  getReservationReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    return db.prepare(`
+      SELECT status, COUNT(*) as count
+      FROM reservations
+      WHERE branch_id = ?
+        AND COALESCE(reservation_date, substr(reservation_time, 1, 10)) >= ?
+        AND COALESCE(reservation_date, substr(reservation_time, 1, 10)) <= ?
+      GROUP BY status
+    `).all(targetBranch, startDate, endDate)
+  },
+
+  getRefundReport(branchId, filter = {}) {
+    const db = getDb()
+    const targetBranch = branchId || db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
+    const { startDate, endDate } = dateRange(filter)
+    return db.prepare(`
+      SELECT
+        rf.id, rf.amount_cents, rf.reason, rf.restock, rf.created_at,
+        o.order_number, u.display_name as cashier_name
+      FROM refunds rf
+      LEFT JOIN orders o ON rf.order_id = o.id
+      LEFT JOIN users u ON rf.cashier_id = u.id
+      WHERE rf.branch_id = ?
+        AND rf.created_at >= ? AND rf.created_at <= ? || 'T23:59:59.999Z'
+      ORDER BY rf.created_at DESC
+    `).all(targetBranch, startDate, endDate)
+  },
+}
+
+function dateRange(filter = {}) {
+  return {
+    startDate: filter.startDate || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10),
+    endDate: filter.endDate || new Date().toISOString().slice(0, 10),
+  }
 }

@@ -1,25 +1,14 @@
 import { ipcMain } from 'electron'
 import { tableRepository } from '../db/repositories/tableRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
 
 function assertPermission(permCode) {
-  const session = authRepository.getCurrentSession()
-  if (session && session.roleCode !== 'super_admin' && !session.permissions?.includes(permCode)) {
-    throw new Error(`Unauthorized: Requires '${permCode}' permission.`)
-  }
+  return requirePermission(permCode)
 }
 
 export function registerTableIpcHandlers() {
   ipcMain.handle('table:get-floors-tables', async (_event, branchId) => {
+    requireSession()
     return tableRepository.getFloorsWithTables(getActiveBranchId(branchId))
   })
 
@@ -58,5 +47,10 @@ export function registerTableIpcHandlers() {
   ipcMain.handle('table:archive-table', async (_event, id) => {
     assertPermission('settings:manage')
     return tableRepository.archiveTable(id)
+  })
+
+  ipcMain.handle('table:merge-tables', async (_event, data) => {
+    requirePermission('pos:create_order')
+    return tableRepository.mergeTables(data)
   })
 }

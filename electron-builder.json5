@@ -1,9 +1,14 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "local.restaurant.pos",
   "asar": true,
-  "productName": "YourAppName",
+  "asarUnpack": [
+    "**/node_modules/better-sqlite3/**",
+    "**/node_modules/bindings/**",
+    "**/node_modules/file-uri-to-path/**"
+  ],
+  "productName": "Restaurant POS",
   "directories": {
     "output": "release/${version}"
   },

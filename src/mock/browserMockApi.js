@@ -1084,6 +1084,19 @@ export function initBrowserMockApi() {
         { id: 'aud-1', action: 'CREATE_ORDER', entity_type: 'ORDER', entity_id: 'ord-kds-01', created_at: new Date().toISOString() },
         { id: 'aud-2', action: 'CLOCK_IN', entity_type: 'STAFF', entity_id: 'emp-01', created_at: new Date().toISOString() },
       ],
+      getStaffSales: async () => [],
+      getCustomerReport: async () => [],
+      getKitchenReport: async () => ({ byStatus: [], avgPrepMinutes: 0 }),
+      getDeliveryReport: async () => ({ riders: [] }),
+      getInventoryReport: async () => ({ items: [], totalValuationCents: 0, lowStockCount: 0 }),
+      getExpenseReport: async () => [],
+      getReservationReport: async () => [],
+      getRefundReport: async () => [],
+    },
+
+    media: {
+      save: async ({ dataUrl }) => ({ id: `media-${Date.now()}`, dataUrl }),
+      getDataUrl: async (id) => (id && String(id).startsWith('data:') ? id : null),
     },
 
     settings: {

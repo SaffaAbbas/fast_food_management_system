@@ -42,6 +42,11 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
   const [cancelModalOrder, setCancelModalOrder] = useState(null)
   const [cancelReason, setCancelReason] = useState('Customer changed mind')
   const [cancelling, setCancelling] = useState(false)
+  const [refundModalOrder, setRefundModalOrder] = useState(null)
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundReason, setRefundReason] = useState('Customer return')
+  const [refundRestock, setRefundRestock] = useState(true)
+  const [refunding, setRefunding] = useState(false)
 
   // Toast
   const [toast, setToast] = useState(null)
@@ -115,6 +120,28 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
     }
   }
 
+  const handleConfirmRefund = async (e) => {
+    e.preventDefault()
+    if (!refundModalOrder) return
+    setRefunding(true)
+    try {
+      await window.api.pos.refundOrder({
+        orderId: refundModalOrder.id,
+        amountCents: Math.round(parseFloat(refundAmount || '0') * 100),
+        reason: refundReason.trim(),
+        restock: refundRestock,
+      })
+      showToast('success', `Refund posted for ${refundModalOrder.order_number}`)
+      setRefundModalOrder(null)
+      loadOrders()
+      if (selectedOrderId === refundModalOrder.id) handleOpenDetails(refundModalOrder.id)
+    } catch (err) {
+      showToast('error', err.message || 'Refund failed')
+    } finally {
+      setRefunding(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Toast Alert */}
@@ -181,7 +208,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
         <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
           {/* Status Pills */}
           <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto scrollbar-none">
-            {['ALL', 'CONFIRMED', 'COMPLETED', 'DRAFT', 'CANCELLED'].map((st) => (
+            {['ALL', 'CONFIRMED', 'COMPLETED', 'DRAFT', 'CANCELLED', 'REFUNDED'].map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -323,13 +350,25 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                             <Printer className="w-3.5 h-3.5 text-orange-400" />
                           </button>
 
-                          {!isCancelled && !isCompleted && (
+                          {!isCancelled && !isCompleted && o.status !== 'REFUNDED' && (
                             <button
                               onClick={() => setCancelModalOrder(o)}
                               title="Cancel Order"
                               className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
                             >
                               <Ban className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {isCompleted && (
+                            <button
+                              onClick={() => {
+                                setRefundModalOrder(o)
+                                setRefundAmount(((o.paid_cents - (o.refunded_cents || 0)) / 100).toFixed(2))
+                              }}
+                              title="Refund"
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-950 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -554,6 +593,31 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {refundModalOrder && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <form onSubmit={handleConfirmRefund} className="bg-slate-950 border border-slate-800 rounded-2xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="font-bold text-white">Refund {refundModalOrder.order_number}</h3>
+            <p className="text-xs text-slate-400">Creates an auditable refund. Completed sales are not deleted.</p>
+            <label className="block text-xs text-slate-300">
+              Amount
+              <input required type="number" step="0.01" min="0.01" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white" />
+            </label>
+            <label className="block text-xs text-slate-300">
+              Reason
+              <input required value={refundReason} onChange={(e) => setRefundReason(e.target.value)} className="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white" />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <input type="checkbox" checked={refundRestock} onChange={(e) => setRefundRestock(e.target.checked)} />
+              Restock recipe ingredients if this refund completes the order
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setRefundModalOrder(null)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs">Cancel</button>
+              <button disabled={refunding} className="px-4 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold">{refunding ? 'Posting...' : 'Post refund'}</button>
+            </div>
+          </form>
         </div>
       )}
 

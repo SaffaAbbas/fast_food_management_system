@@ -26,6 +26,7 @@ import {
   Receipt,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker from '../../components/ImagePicker.jsx'
 
 export default function CustomersView({ onBack }) {
   const [activeTab, setActiveTab] = useState('customers') // 'customers', 'coupons'
@@ -58,6 +59,7 @@ export default function CustomersView({ onBack }) {
     tag: 'REGULAR',
     birthDate: '',
     notes: '',
+    imageUrl: null,
   })
 
   // Loyalty Adjust Form
@@ -148,6 +150,7 @@ export default function CustomersView({ onBack }) {
         tag: 'REGULAR',
         birthDate: '',
         notes: '',
+        imageUrl: null,
       })
       loadData()
     } catch (err) {
@@ -167,6 +170,7 @@ export default function CustomersView({ onBack }) {
       tag: c.tag || 'REGULAR',
       birthDate: c.birth_date || '',
       notes: c.notes || '',
+      imageUrl: c.image_url || null,
     })
     setShowAddCustomerModal(true)
   }
@@ -335,6 +339,7 @@ export default function CustomersView({ onBack }) {
                   tag: 'REGULAR',
                   birthDate: '',
                   notes: '',
+                  imageUrl: null,
                 })
                 setShowAddCustomerModal(true)
               }}
@@ -662,6 +667,11 @@ export default function CustomersView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveCustomer} className="space-y-4 text-xs">
+              <ImagePicker
+                label="Customer photo"
+                value={customerForm.imageUrl}
+                onChange={(imageUrl) => setCustomerForm({ ...customerForm, imageUrl })}
+              />
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-slate-400 font-semibold">Full Name *</label>

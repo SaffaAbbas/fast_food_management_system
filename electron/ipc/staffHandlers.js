@@ -1,21 +1,9 @@
 import { ipcMain } from 'electron'
 import { staffRepository } from '../db/repositories/staffRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
 
 function assertManagerOrAdmin() {
-  const session = authRepository.getCurrentSession()
-  if (session && !['super_admin', 'branch_admin', 'manager'].includes(session.roleCode)) {
-    throw new Error('Unauthorized: Manager or Admin role required.')
-  }
+  return requirePermission('staff:manage')
 }
 
 export function registerStaffIpcHandlers() {
@@ -23,6 +11,7 @@ export function registerStaffIpcHandlers() {
   // EMPLOYEE ROSTER
   // ==========================================
   ipcMain.handle('staff:get-employees', async (_event, params = {}) => {
+    requireSession()
     const branchId = getActiveBranchId(params.branchId)
     return staffRepository.getEmployees({ ...params, branchId })
   })
@@ -90,13 +79,16 @@ export function registerStaffIpcHandlers() {
   })
 
   ipcMain.handle('staff:create-user', async (_event, userData) => {
-    assertManagerOrAdmin()
+    const session = assertManagerOrAdmin()
     const branchId = getActiveBranchId(userData.branchId)
-    return staffRepository.createUser({ ...userData, branchId })
+    return staffRepository.createUser({ ...userData, branchId, actorRoleCode: session.roleCode })
   })
 
   ipcMain.handle('staff:update-user', async (_event, { id, data }) => {
-    assertManagerOrAdmin()
-    return staffRepository.updateUser(id, data)
+    const session = assertManagerOrAdmin()
+    if (id === session.id && data?.roleId) {
+      throw new Error('You cannot change your own role.')
+    }
+    return staffRepository.updateUser(id, { ...data, actorRoleCode: session.roleCode })
   })
 }

@@ -38,6 +38,7 @@ import {
   Globe,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker, { EntityImage } from '../../components/ImagePicker.jsx'
 
 export default function ProductManager({ onCatalogUpdated, onBack }) {
   // Navigation & Sub-views
@@ -490,6 +491,13 @@ export default function ProductManager({ onCatalogUpdated, onBack }) {
                     }`}
                   >
                     <div>
+                      {p.image_url && (
+                        <EntityImage
+                          id={p.image_url}
+                          alt={p.name}
+                          className="w-full aspect-[4/3] rounded-xl mb-3 bg-white"
+                        />
+                      )}
                       {/* Top Badges */}
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -1072,6 +1080,7 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
   const [sku, setSku] = useState(product?.sku || '')
   const [barcode, setBarcode] = useState(product?.barcode || '')
   const [description, setDescription] = useState(product?.description || '')
+  const [imageUrl, setImageUrl] = useState(product?.image_url || null)
   const [prepTime, setPrepTime] = useState(product?.preparation_time_minutes || 15)
   const [taxPercentage, setTaxPercentage] = useState(product?.tax_percentage || 5.0)
   const [trackInventory, setTrackInventory] = useState(Boolean(product?.track_inventory))
@@ -1252,6 +1261,7 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
         sku: sku.trim() || undefined,
         barcode: barcode.trim() || undefined,
         description: description.trim() || undefined,
+        imageUrl,
         basePriceCents: baseCents,
         costPriceCents: Math.round(parseFloat(costPrice || 0) * 100),
         taxPercentage: parseFloat(taxPercentage) || 0.0,
@@ -1395,6 +1405,7 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
           {/* TAB 1: GENERAL */}
           {formTab === 'general' && (
             <div className="space-y-4">
+              <ImagePicker label="Product photo" value={imageUrl} onChange={setImageUrl} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1998,6 +2009,7 @@ function CategoryFormModal({ category, categories = [], onClose, onSaved }) {
   const [parentId, setParentId] = useState(category?.parent_id || '')
   const [isVisiblePos, setIsVisiblePos] = useState(category?.is_visible_pos !== 0)
   const [isVisibleOnline, setIsVisibleOnline] = useState(category?.is_visible_online !== 0)
+  const [imageUrl, setImageUrl] = useState(category?.image_url || null)
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -2019,7 +2031,8 @@ function CategoryFormModal({ category, categories = [], onClose, onSaved }) {
         displayOrder: parseInt(displayOrder) || 0,
         parentId: parentId || null,
         isVisiblePos,
-        isVisibleOnline
+        isVisibleOnline,
+        imageUrl
       }
 
       if (isEdit) {
@@ -2057,6 +2070,7 @@ function CategoryFormModal({ category, categories = [], onClose, onSaved }) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <ImagePicker label="Category image" value={imageUrl} onChange={setImageUrl} />
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">
               Category Name <span className="text-orange-400">*</span>
@@ -2182,6 +2196,7 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
         }))
       : [{ productId: products[0]?.id || '', quantity: 1 }]
   )
+  const [imageUrl, setImageUrl] = useState(combo?.image_url || null)
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -2235,6 +2250,7 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
         isAvailable,
         availableFrom: availableFrom || undefined,
         availableTo: availableTo || undefined,
+        imageUrl,
         items: selectedItems.map((it) => ({
           productId: it.productId,
           quantity: parseInt(it.quantity) || 1
@@ -2279,6 +2295,7 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <ImagePicker label="Combo photo" value={imageUrl} onChange={setImageUrl} />
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-slate-300 mb-1">

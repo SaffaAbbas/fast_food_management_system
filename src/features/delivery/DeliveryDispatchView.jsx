@@ -29,6 +29,7 @@ import {
   Wallet,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker from '../../components/ImagePicker.jsx'
 
 export default function DeliveryDispatchView({ onBack }) {
   const [activeTab, setActiveTab] = useState('board') // 'board', 'riders', 'zones', 'settlements'
@@ -63,6 +64,7 @@ export default function DeliveryDispatchView({ onBack }) {
     phone: '',
     vehicleType: 'MOTORCYCLE',
     licensePlate: '',
+    imageUrl: null,
   })
 
   // Zone Form
@@ -963,6 +965,11 @@ export default function DeliveryDispatchView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveRider} className="space-y-4 text-xs">
+              <ImagePicker
+                label="Rider photo"
+                value={riderForm.imageUrl}
+                onChange={(imageUrl) => setRiderForm({ ...riderForm, imageUrl })}
+              />
               <div className="space-y-1">
                 <label className="text-slate-400 font-semibold">Full Name *</label>
                 <input

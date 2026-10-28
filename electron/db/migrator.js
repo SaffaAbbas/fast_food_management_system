@@ -6,6 +6,10 @@ import { migration005 } from './migrations/005_inventory_recipe_purchases_schema
 import { migration006 } from './migrations/006_shifts_staff_attendance_schema.js'
 import { migration007 } from './migrations/007_crm_loyalty_reservations_schema.js'
 import { migration008 } from './migrations/008_delivery_dispatch_riders_schema.js'
+import { migration009 } from './migrations/009_refunds_financial_integrity.js'
+import { migration010 } from './migrations/010_sync_outbox_and_permissions.js'
+import { migration011 } from './migrations/011_media_and_report_columns.js'
+import { migration012 } from './migrations/012_roles_image_url.js'
 
 const MIGRATIONS = [
   migration001,
@@ -16,6 +20,10 @@ const MIGRATIONS = [
   migration006,
   migration007,
   migration008,
+  migration009,
+  migration010,
+  migration011,
+  migration012,
 ]
 
 /**

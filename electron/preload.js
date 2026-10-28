@@ -9,10 +9,13 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   IPC_CHANNELS.DB_STATUS,
   IPC_CHANNELS.DB_BACKUP,
   IPC_CHANNELS.DB_RESTORE,
+  'db:choose-backup-file',
   IPC_CHANNELS.AUTH_LOGIN,
   IPC_CHANNELS.AUTH_LOGOUT,
   IPC_CHANNELS.AUTH_CURRENT_USER,
   'auth:get-login-users',
+  'auth:needs-setup',
+  'auth:complete-setup',
   'dashboard:get-metrics',
   'db:get-settings',
   'db:get-categories',
@@ -43,6 +46,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'pos:hold-order',
   'pos:get-held-orders',
   'pos:cancel-order',
+  'pos:refund-order',
   'pos:get-orders',
   // Table & Floor Management (Phase 5)
   'table:get-floors-tables',
@@ -53,6 +57,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'table:create-table',
   'table:update-table',
   'table:archive-table',
+  'table:merge-tables',
   // Customer CRM & Loyalty (Phase 9)
   'customer:get-customers',
   'customer:get-details',
@@ -153,6 +158,16 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'reports:get-profit-and-loss',
   'reports:get-void-audits',
   'reports:get-audit-logs',
+  'reports:get-staff-sales',
+  'reports:get-customer-report',
+  'reports:get-kitchen-report',
+  'reports:get-delivery-report',
+  'reports:get-inventory-report',
+  'reports:get-expense-report',
+  'reports:get-reservation-report',
+  'reports:get-refund-report',
+  'media:save',
+  'media:get-data-url',
   // System Settings (Phase 11)
   'settings:get-all',
   'settings:get',
@@ -197,6 +212,8 @@ const api = {
     logout: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
     getCurrentUser: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_CURRENT_USER),
     getLoginUsers: () => ipcRenderer.invoke('auth:get-login-users'),
+    needsSetup: () => ipcRenderer.invoke('auth:needs-setup'),
+    completeSetup: (payload) => ipcRenderer.invoke('auth:complete-setup', payload),
   },
 
   // Dashboard API
@@ -231,6 +248,7 @@ const api = {
     holdOrder: (data) => ipcRenderer.invoke('pos:hold-order', data),
     getHeldOrders: (branchId) => ipcRenderer.invoke('pos:get-held-orders', branchId),
     cancelOrder: (data) => ipcRenderer.invoke('pos:cancel-order', data),
+    refundOrder: (data) => ipcRenderer.invoke('pos:refund-order', data),
     getOrders: (params = {}) => ipcRenderer.invoke('pos:get-orders', params),
   },
 
@@ -244,6 +262,7 @@ const api = {
     createTable: (data) => ipcRenderer.invoke('table:create-table', data),
     updateTable: (data) => ipcRenderer.invoke('table:update-table', data),
     archiveTable: (id) => ipcRenderer.invoke('table:archive-table', id),
+    mergeTables: (data) => ipcRenderer.invoke('table:merge-tables', data),
   },
 
   // Customer Management API (Phase 5 & 8)
@@ -388,6 +407,19 @@ const api = {
     getProfitAndLoss: (params = {}) => ipcRenderer.invoke('reports:get-profit-and-loss', params),
     getVoidAudits: (params = {}) => ipcRenderer.invoke('reports:get-void-audits', params),
     getAuditLogs: (params = {}) => ipcRenderer.invoke('reports:get-audit-logs', params),
+    getStaffSales: (params = {}) => ipcRenderer.invoke('reports:get-staff-sales', params),
+    getCustomerReport: (params = {}) => ipcRenderer.invoke('reports:get-customer-report', params),
+    getKitchenReport: (params = {}) => ipcRenderer.invoke('reports:get-kitchen-report', params),
+    getDeliveryReport: (params = {}) => ipcRenderer.invoke('reports:get-delivery-report', params),
+    getInventoryReport: (params = {}) => ipcRenderer.invoke('reports:get-inventory-report', params),
+    getExpenseReport: (params = {}) => ipcRenderer.invoke('reports:get-expense-report', params),
+    getReservationReport: (params = {}) => ipcRenderer.invoke('reports:get-reservation-report', params),
+    getRefundReport: (params = {}) => ipcRenderer.invoke('reports:get-refund-report', params),
+  },
+
+  media: {
+    save: (payload) => ipcRenderer.invoke('media:save', payload),
+    getDataUrl: (id) => ipcRenderer.invoke('media:get-data-url', id),
   },
 
   // Settings API (Phase 11)
@@ -408,6 +440,7 @@ const api = {
     getRecentOrders: (params = {}) => ipcRenderer.invoke('db:get-recent-orders', params),
     backup: (targetPath) => ipcRenderer.invoke(IPC_CHANNELS.DB_BACKUP, targetPath),
     restore: (backupPath) => ipcRenderer.invoke(IPC_CHANNELS.DB_RESTORE, backupPath),
+    chooseBackupFile: () => ipcRenderer.invoke('db:choose-backup-file'),
   },
 
   // Safe invoke with strict whitelist verification

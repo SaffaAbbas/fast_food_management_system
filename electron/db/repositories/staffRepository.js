@@ -1,6 +1,6 @@
 import { getDb } from '../index.js'
 import crypto from 'node:crypto'
-import { authRepository } from './authRepository.js'
+import { authRepository, hashSecret } from './authRepository.js'
 
 function uuid() {
   return crypto.randomUUID()
@@ -160,11 +160,11 @@ export const staffRepository = {
       INSERT INTO employees (
         id, branch_id, user_id, employee_code, first_name, last_name,
         email, phone, designation, role_id, salary_type, base_rate_cents,
-        hire_date, status, emergency_contact, notes, created_at, updated_at
+        hire_date, status, emergency_contact, notes, image_url, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?
       )
     `).run(
       empId,
@@ -183,6 +183,7 @@ export const staffRepository = {
       data.status || 'ACTIVE',
       data.emergencyContact || null,
       data.notes || null,
+      data.imageUrl || data.image_url || null,
       now,
       now
     )
@@ -219,6 +220,7 @@ export const staffRepository = {
           status = ?,
           emergency_contact = ?,
           notes = ?,
+          image_url = ?,
           updated_at = ?
       WHERE id = ?
     `).run(
@@ -234,6 +236,7 @@ export const staffRepository = {
       data.status !== undefined ? data.status : existing.status,
       data.emergencyContact !== undefined ? data.emergencyContact : existing.emergency_contact,
       data.notes !== undefined ? data.notes : existing.notes,
+      data.imageUrl !== undefined ? data.imageUrl : (data.image_url !== undefined ? data.image_url : existing.image_url),
       now,
       id
     )
@@ -492,25 +495,30 @@ export const staffRepository = {
     const userId = uuid()
     const now = new Date().toISOString()
 
-    // Check duplicate username
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(userData.username.trim().toLowerCase())
     if (existing) throw new Error(`Username "${userData.username}" is already taken.`)
 
-    // Simple hash for pin/password
-    const pin = userData.pin || '1234'
-    const pinHash = crypto.createHash('sha256').update(pin).digest('hex')
+    const targetRole = db.prepare('SELECT code FROM roles WHERE id = ?').get(userData.roleId)
+    if (targetRole?.code === 'super_admin' && userData.actorRoleCode !== 'super_admin') {
+      throw new Error('Only a super administrator can create another super administrator.')
+    }
+
+    const pinHash = userData.pin ? hashSecret(String(userData.pin)) : null
+    const passwordHash = userData.password ? hashSecret(String(userData.password)) : null
 
     db.prepare(`
       INSERT INTO users (
-        id, branch_id, role_id, username, display_name, pin_hash, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        id, branch_id, role_id, username, display_name, password_hash, pin_hash, image_url, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
       userId,
       validBranchId,
       userData.roleId,
       userData.username.trim().toLowerCase(),
       userData.displayName.trim(),
+      passwordHash,
       pinHash,
+      userData.imageUrl || userData.image_url || null,
       now,
       now
     )
@@ -535,9 +543,19 @@ export const staffRepository = {
     if (!existing) throw new Error('User not found.')
 
     const now = new Date().toISOString()
+    const targetRoleId = userData.roleId !== undefined ? userData.roleId : existing.role_id
+    const targetRole = db.prepare('SELECT code FROM roles WHERE id = ?').get(targetRoleId)
+    if (targetRole?.code === 'super_admin' && userData.actorRoleCode !== 'super_admin') {
+      throw new Error('Only a super administrator can assign the super administrator role.')
+    }
+
     let pinHash = existing.pin_hash
     if (userData.pin && userData.pin.trim() !== '') {
-      pinHash = crypto.createHash('sha256').update(userData.pin.trim()).digest('hex')
+      pinHash = hashSecret(userData.pin.trim())
+    }
+    let passwordHash = existing.password_hash
+    if (userData.password && userData.password.trim() !== '') {
+      passwordHash = hashSecret(userData.password.trim())
     }
 
     db.prepare(`
@@ -546,13 +564,17 @@ export const staffRepository = {
           role_id = ?,
           is_active = ?,
           pin_hash = ?,
+          password_hash = ?,
+          image_url = ?,
           updated_at = ?
       WHERE id = ?
     `).run(
       userData.displayName !== undefined ? userData.displayName.trim() : existing.display_name,
-      userData.roleId !== undefined ? userData.roleId : existing.role_id,
+      targetRoleId,
       userData.isActive !== undefined ? (userData.isActive ? 1 : 0) : existing.is_active,
       pinHash,
+      passwordHash,
+      userData.imageUrl !== undefined ? userData.imageUrl : (userData.image_url !== undefined ? userData.image_url : existing.image_url),
       now,
       id
     )

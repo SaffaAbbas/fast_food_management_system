@@ -108,20 +108,7 @@ export const authRepository = {
       params.push(userId || '', username || userId || '', cleanUser)
     }
 
-    let users = db.prepare(query).all(...params)
-
-    // Fallback: If no user found by ID/username, check all active users by PIN
-    if (users.length === 0) {
-      users = db.prepare(`
-        SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name,
-               u.password_hash, u.pin_hash, u.is_active,
-               COALESCE(r.code, 'cashier') as role_code,
-               COALESCE(r.name, 'Staff Member') as role_name
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        WHERE u.is_active = 1
-      `).all()
-    }
+    const users = db.prepare(query).all(...params)
 
     let authenticatedUser = null
     for (const u of users) {
@@ -194,6 +181,88 @@ export const authRepository = {
     const hashed = hashSecret(newPin)
     db.prepare('UPDATE users SET pin_hash = ?, updated_at = ? WHERE id = ?').run(hashed, now, userId)
     return true
+  },
+
+  needsSetup: () => {
+    const db = getDb()
+    const count = db.prepare('SELECT COUNT(*) as count FROM users').get().count
+    return count === 0
+  },
+
+  completeInitialSetup: ({ restaurantName, username, displayName, password, pin }) => {
+    const db = getDb()
+    if (authRepository.needsSetup() === false) {
+      throw new Error('Initial setup is already complete. Sign in with an existing administrator account.')
+    }
+    if (!username?.trim() || !password || password.length < 8) {
+      throw new Error('Administrator username and a password of at least 8 characters are required.')
+    }
+    if (!pin || !/^\d{4,6}$/.test(String(pin))) {
+      throw new Error('A 4 to 6 digit PIN is required for terminal unlocking.')
+    }
+
+    const now = new Date().toISOString()
+    const setupTx = db.transaction(() => {
+      let branch = db.prepare('SELECT id FROM branches LIMIT 1').get()
+      if (!branch) {
+        const branchId = crypto.randomUUID()
+        db.prepare(`
+          INSERT INTO branches (id, name, code, phone, email, address, city, currency_code, currency_symbol, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        `).run(
+          branchId,
+          (restaurantName || 'My Restaurant').trim(),
+          'BR-01',
+          '',
+          '',
+          '',
+          '',
+          'USD',
+          '$',
+          now,
+          now
+        )
+        branch = { id: branchId }
+      } else if (restaurantName?.trim()) {
+        db.prepare('UPDATE branches SET name = ?, updated_at = ? WHERE id = ?')
+          .run(restaurantName.trim(), now, branch.id)
+      }
+
+      let role = db.prepare("SELECT id FROM roles WHERE code = 'super_admin'").get()
+      if (!role) {
+        const roleId = crypto.randomUUID()
+        db.prepare('INSERT INTO roles (id, code, name, description, is_system, created_at) VALUES (?, ?, ?, ?, 1, ?)')
+          .run(roleId, 'super_admin', 'Super Administrator', 'Full system access', now)
+        role = { id: roleId }
+      }
+
+      const userId = crypto.randomUUID()
+      db.prepare(`
+        INSERT INTO users (id, branch_id, role_id, username, display_name, password_hash, pin_hash, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `).run(
+        userId,
+        branch.id,
+        role.id,
+        username.trim().toLowerCase(),
+        (displayName || username).trim(),
+        hashSecret(password),
+        hashSecret(String(pin)),
+        now,
+        now
+      )
+
+      db.prepare(`
+        INSERT INTO system_settings (setting_key, setting_value, category, updated_at)
+        VALUES ('setup_completed', '1', 'SECURITY', ?)
+        ON CONFLICT(setting_key) DO UPDATE SET
+          setting_value = excluded.setting_value,
+          updated_at = excluded.updated_at
+      `).run(now)
+    })
+
+    setupTx()
+    return authRepository.loginWithPassword(username.trim().toLowerCase(), password)
   },
 
   /**

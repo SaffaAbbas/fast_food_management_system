@@ -101,12 +101,31 @@ export default function SettingsView({ onBack }) {
     try {
       if (window.api?.db?.backup) {
         const res = await window.api.db.backup()
-        setBackupPath(res.backupPath)
+        setBackupPath(res.destination || res.backupPath)
         showNotification(`Database hot backup successfully created!`)
       }
     } catch (err) {
       console.error('Backup failed:', err)
       setError(err.message || 'Database backup failed.')
+    }
+  }
+
+  const handleRestoreBackup = async () => {
+    try {
+      if (!window.api?.db?.chooseBackupFile || !window.api?.db?.restore) {
+        setError('Restore is only available in the desktop application.')
+        return
+      }
+      const selected = await window.api.db.chooseBackupFile()
+      if (!selected) return
+      const confirmed = window.confirm(
+        'Restoring a backup replaces the current database. A safety snapshot will be created first. Continue?'
+      )
+      if (!confirmed) return
+      const result = await window.api.db.restore(selected)
+      showNotification(result.message || 'Database restored. Restart the application.')
+    } catch (err) {
+      setError(err.message || 'Restore failed.')
     }
   }
 
@@ -379,13 +398,21 @@ export default function SettingsView({ onBack }) {
               <Database className="w-4 h-4 text-blue-400" />
               SQLite Persistent Store Information
             </h3>
-            <button
-              onClick={handleTriggerBackup}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-all cursor-pointer"
-            >
-              <FolderArchive className="w-3.5 h-3.5" />
-              Backup Now
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleTriggerBackup}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-all cursor-pointer"
+              >
+                <FolderArchive className="w-3.5 h-3.5" />
+                Backup Now
+              </button>
+              <button
+                onClick={handleRestoreBackup}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold border border-slate-700"
+              >
+                Restore Backup
+              </button>
+            </div>
           </div>
 
           {backupPath && (
@@ -408,7 +435,7 @@ export default function SettingsView({ onBack }) {
             </div>
             <div>
               <span className="text-[10px] text-slate-500 uppercase tracking-wider">Schema Version</span>
-              <p className="text-white font-mono font-bold mt-0.5">v8 (All Migrations Applied)</p>
+              <p className="text-white font-mono font-bold mt-0.5">v{dbStatus?.schemaVersion || 10}</p>
             </div>
             <div>
               <span className="text-[10px] text-slate-500 uppercase tracking-wider">Storage Path</span>

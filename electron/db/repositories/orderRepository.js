@@ -2,6 +2,8 @@ import { getDb } from '../index.js'
 import crypto from 'node:crypto'
 import { authRepository } from './authRepository.js'
 import { inventoryRepository } from './inventoryRepository.js'
+import { customerRepository } from './customerRepository.js'
+import { enqueueOutbox } from '../outbox.js'
 
 function uuid() {
   return crypto.randomUUID()
@@ -164,18 +166,7 @@ export const orderRepository = {
           .run('OCCUPIED', orderId, now, orderData.tableId)
       }
 
-      // 5. Update customer stats if customer is linked and order is confirmed/paid
-      if (orderData.customerId && status !== 'DRAFT' && status !== 'CANCELLED') {
-        const pointsEarned = Math.floor((orderData.totalCents || 0) / 100) // 1 point per dollar
-        db.prepare(`
-          UPDATE customers
-          SET order_count = order_count + 1,
-              total_spent_cents = total_spent_cents + ?,
-              loyalty_points = loyalty_points + ?,
-              updated_at = ?
-          WHERE id = ?
-        `).run(orderData.totalCents || 0, pointsEarned, now, orderData.customerId)
-      }
+      // Loyalty and customer spend are posted only when the sale is fully paid.
 
       // 6. Future sync outbox entry
       db.prepare(`
@@ -190,7 +181,12 @@ export const orderRepository = {
         status,
       })
 
-      return orderRepository.getOrderDetails(orderId)
+      const created = orderRepository.getOrderDetails(orderId)
+      return {
+        ...created,
+        orderNumber: created.order_number,
+        totalCents: created.total_cents,
+      }
     })
 
     return createOrderTx()
@@ -248,10 +244,19 @@ export const orderRepository = {
       ORDER BY h.created_at ASC
     `).all(orderId)
 
+    const refunds = db.prepare(`
+      SELECT r.*, u.display_name as cashier_name
+      FROM refunds r
+      LEFT JOIN users u ON r.cashier_id = u.id
+      WHERE r.order_id = ?
+      ORDER BY r.created_at ASC
+    `).all(orderId)
+
     return {
       ...order,
       items,
       payments,
+      refunds,
       statusHistory,
     }
   },
@@ -263,7 +268,12 @@ export const orderRepository = {
     const paymentTx = db.transaction(() => {
       const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
       if (!order) throw new Error('Order not found.')
-      if (order.status === 'CANCELLED') throw new Error('Cannot process payment on a cancelled order.')
+      if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
+        throw new Error('Cannot process payment on a cancelled or refunded order.')
+      }
+      if (order.status === 'COMPLETED' && (order.paid_cents || 0) >= (order.total_cents || 0)) {
+        throw new Error('This sale is already fully paid. Duplicate completion was blocked.')
+      }
 
       const validBranchId = resolveValidBranchId(db, branchId || order.branch_id)
       const validCashierId = resolveValidUserId(db, cashierId || order.cashier_id)
@@ -332,12 +342,26 @@ export const orderRepository = {
         `).run(now, order.table_id)
       }
 
-      // Deduct raw ingredients according to configured recipes (Section 1.1 & 11)
       if (isFullyPaid) {
         try {
           inventoryRepository.deductRecipeStockForOrder(orderId)
         } catch (e) {
           console.warn('Recipe inventory auto-deduction failed:', e)
+        }
+
+        if (order.customer_id && order.loyalty_awarded !== 1) {
+          const points = Math.max(0, Math.floor((order.total_cents || 0) / 100))
+          if (points > 0) {
+            customerRepository.adjustLoyaltyPoints({
+              customerId: order.customer_id,
+              branchId: validBranchId,
+              orderId,
+              pointsChanged: points,
+              transactionType: 'EARN',
+              notes: `Loyalty earned for ${order.order_number}`,
+            })
+            db.prepare('UPDATE orders SET loyalty_awarded = 1, updated_at = ? WHERE id = ?').run(now, orderId)
+          }
         }
       }
 
@@ -345,6 +369,12 @@ export const orderRepository = {
         orderNumber: order.order_number,
         totalPaymentCents,
         newPaidCents,
+        isFullyPaid,
+      })
+
+      enqueueOutbox('ORDER', orderId, isFullyPaid ? 'SALE_COMPLETED' : 'PAYMENT_RECORDED', {
+        orderNumber: order.order_number,
+        totalPaymentCents,
         isFullyPaid,
       })
 
@@ -403,16 +433,20 @@ export const orderRepository = {
         VALUES (?, ?, ?, 'CANCELLED', ?, ?, ?)
       `).run(uuid(), orderId, order.status, validCancelledBy, `Cancelled: ${reason.trim()}`, now)
 
-      // If dine-in, free table
       if (order.table_id) {
         db.prepare("UPDATE dining_tables SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ? WHERE id = ?")
           .run(now, order.table_id)
+      }
+
+      if (order.stock_posted === 1) {
+        inventoryRepository.reverseRecipeStockForOrder(orderId, `Void restock: ${reason.trim()}`)
       }
 
       logAudit(order.branch_id, 'CANCEL_ORDER', 'ORDER', orderId, {
         orderNumber: order.order_number,
         reason: reason.trim(),
       })
+      enqueueOutbox('ORDER', orderId, 'CANCELLED', { reason: reason.trim() })
 
       return true
     })
@@ -462,5 +496,110 @@ export const orderRepository = {
 
   getRecentOrders: (branchId, limit = 20) => {
     return orderRepository.getOrders({ branchId, limit })
+  },
+
+  refundOrder: ({ orderId, amountCents, reason, restock = true, cashierId = null }) => {
+    const db = getDb()
+    const now = new Date().toISOString()
+
+    const refundTx = db.transaction(() => {
+      const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
+      if (!order) throw new Error('Order not found.')
+      if (order.status === 'CANCELLED') throw new Error('Cannot refund a cancelled order. Use a void/cancel record instead.')
+      if (!reason || !String(reason).trim()) throw new Error('Refund reason is required.')
+
+      const amount = Math.round(Number(amountCents) || 0)
+      if (amount <= 0) throw new Error('Refund amount must be greater than zero.')
+
+      const alreadyRefunded = order.refunded_cents || 0
+      const maxRefundable = Math.max(0, (order.paid_cents || 0) - alreadyRefunded)
+      if (amount > maxRefundable) {
+        throw new Error(`Refund exceeds remaining paid amount ($${(maxRefundable / 100).toFixed(2)}).`)
+      }
+
+      const validCashierId = resolveValidUserId(db, cashierId)
+      const refundId = uuid()
+
+      db.prepare(`
+        INSERT INTO refunds (id, branch_id, order_id, payment_id, cashier_id, amount_cents, reason, restock, created_at)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+      `).run(
+        refundId,
+        order.branch_id,
+        orderId,
+        validCashierId,
+        amount,
+        String(reason).trim(),
+        restock ? 1 : 0,
+        now
+      )
+
+      const newRefunded = alreadyRefunded + amount
+      const fullyRefunded = newRefunded >= (order.paid_cents || 0)
+      const nextStatus = fullyRefunded ? 'REFUNDED' : order.status
+
+      db.prepare(`
+        UPDATE orders
+        SET refunded_cents = ?, status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(newRefunded, nextStatus, now, orderId)
+
+      db.prepare(`
+        INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        uuid(),
+        orderId,
+        order.status,
+        nextStatus,
+        validCashierId,
+        `Refund $${(amount / 100).toFixed(2)}: ${String(reason).trim()}`,
+        now
+      )
+
+      const openSession = db.prepare(`
+        SELECT id FROM cash_sessions
+        WHERE branch_id = ? AND status = 'OPEN'
+        ORDER BY opened_at DESC LIMIT 1
+      `).get(order.branch_id)
+      if (openSession) {
+        db.prepare(`
+          UPDATE cash_sessions
+          SET total_refunds_cents = COALESCE(total_refunds_cents, 0) + ?
+          WHERE id = ?
+        `).run(amount, openSession.id)
+      }
+
+      if (restock && fullyRefunded && order.stock_posted === 1) {
+        inventoryRepository.reverseRecipeStockForOrder(orderId, `Refund restock: ${String(reason).trim()}`)
+      }
+
+      if (fullyRefunded && order.loyalty_awarded === 1 && order.customer_id) {
+        const points = Math.max(0, Math.floor((order.total_cents || 0) / 100))
+        if (points > 0) {
+          customerRepository.adjustLoyaltyPoints({
+            customerId: order.customer_id,
+            branchId: order.branch_id,
+            orderId,
+            pointsChanged: -points,
+            transactionType: 'ADJUSTMENT',
+            notes: `Loyalty reversal for refunded ${order.order_number}`,
+          })
+          db.prepare('UPDATE orders SET loyalty_awarded = 0, updated_at = ? WHERE id = ?').run(now, orderId)
+        }
+      }
+
+      logAudit(order.branch_id, 'REFUND_ORDER', 'ORDER', orderId, {
+        orderNumber: order.order_number,
+        amountCents: amount,
+        restock: Boolean(restock),
+        reason: String(reason).trim(),
+      })
+      enqueueOutbox('ORDER', orderId, 'REFUNDED', { amountCents: amount, fullyRefunded })
+
+      return orderRepository.getOrderDetails(orderId)
+    })
+
+    return refundTx()
   },
 }

@@ -134,8 +134,8 @@ export const deliveryRepository = {
     db.prepare(`
       INSERT INTO riders (
         id, branch_id, employee_id, name, phone, vehicle_type,
-        license_plate, status, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'AVAILABLE', 1, ?, ?)
+        license_plate, status, image_url, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'AVAILABLE', ?, 1, ?, ?)
     `).run(
       id,
       branchId,
@@ -144,6 +144,7 @@ export const deliveryRepository = {
       data.phone.trim(),
       data.vehicleType || 'MOTORCYCLE',
       data.licensePlate ? data.licensePlate.trim() : null,
+      data.imageUrl || data.image_url || null,
       now,
       now
     )
@@ -179,6 +180,10 @@ export const deliveryRepository = {
     if (data.isActive !== undefined) {
       fields.push('is_active = ?')
       params.push(data.isActive ? 1 : 0)
+    }
+    if (data.imageUrl !== undefined || data.image_url !== undefined) {
+      fields.push('image_url = ?')
+      params.push(data.imageUrl !== undefined ? data.imageUrl : data.image_url)
     }
 
     if (fields.length === 0) return this.getRiderById(id)

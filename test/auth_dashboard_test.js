@@ -109,6 +109,22 @@ async function runAuthAndDashboardTests() {
   if (metrics.sales.totalOrders !== 2) throw new Error(`Expected 2 orders, got ${metrics.sales.totalOrders}`)
   if (metrics.sales.grossSalesCents !== 3675) throw new Error(`Expected gross sales 3675, got ${metrics.sales.grossSalesCents}`)
 
+  console.log('\n--- Test 8: Initial setup cannot be repeated ---')
+  let setupBlocked = false
+  try {
+    authRepository.completeInitialSetup({
+      restaurantName: 'Hacked',
+      username: 'hacker',
+      displayName: 'Hacker',
+      password: 'password123',
+      pin: '9999',
+    })
+  } catch (e) {
+    setupBlocked = true
+    console.log(`✓ Repeat setup blocked: ${e.message}`)
+  }
+  if (!setupBlocked) throw new Error('Initial setup was allowed after users already exist!')
+
   // Clean up
   closeDatabase()
   try {

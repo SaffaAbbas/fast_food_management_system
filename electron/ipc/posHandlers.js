@@ -1,72 +1,79 @@
 import { ipcMain } from 'electron'
 import { orderRepository } from '../db/repositories/orderRepository.js'
-import { authRepository } from '../db/repositories/authRepository.js'
-import { getDb } from '../db/index.js'
-
-function getActiveBranchId(providedBranchId) {
-  if (providedBranchId) return providedBranchId
-  const session = authRepository.getCurrentSession()
-  if (session?.branchId) return session.branchId
-  const db = getDb()
-  return db.prepare('SELECT id FROM branches LIMIT 1').get()?.id
-}
-
-function assertPermission(permCode) {
-  const session = authRepository.getCurrentSession()
-  if (session && session.roleCode !== 'super_admin' && !session.permissions?.includes(permCode)) {
-    throw new Error(`Unauthorized: Requires '${permCode}' permission.`)
-  }
-}
+import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
+import { broadcast } from './localEvents.js'
 
 export function registerPosIpcHandlers() {
   ipcMain.handle('pos:create-order', async (_event, orderData) => {
-    assertPermission('pos:create_order')
+    requirePermission('pos:create_order')
     const branchId = getActiveBranchId(orderData.branchId)
-    const session = authRepository.getCurrentSession()
-    return orderRepository.createOrder({
+    const session = requireSession()
+    const order = orderRepository.createOrder({
       ...orderData,
       branchId,
-      cashierId: orderData.cashierId || session?.id || null,
+      cashierId: orderData.cashierId || session.id,
     })
+    if (order?.status && order.status !== 'DRAFT') {
+      broadcast('kitchen:new-order', { orderId: order.id, orderNumber: order.orderNumber || order.order_number })
+    }
+    return order
   })
 
   ipcMain.handle('pos:get-order', async (_event, orderId) => {
+    requireSession()
     return orderRepository.getOrderDetails(orderId)
   })
 
   ipcMain.handle('pos:process-payment', async (_event, paymentData) => {
-    assertPermission('pos:create_order')
+    requirePermission('pos:create_order')
     const branchId = getActiveBranchId(paymentData.branchId)
-    const session = authRepository.getCurrentSession()
-    return orderRepository.processPayment({
+    const session = requireSession()
+    const result = orderRepository.processPayment({
       ...paymentData,
       branchId,
-      cashierId: paymentData.cashierId || session?.id || null,
+      cashierId: paymentData.cashierId || session.id,
     })
+    broadcast('pos:status-change', { orderId: paymentData.orderId, status: result?.status })
+    return result
   })
 
   ipcMain.handle('pos:hold-order', async (_event, orderData) => {
-    assertPermission('pos:create_order')
+    requirePermission('pos:create_order')
     const branchId = getActiveBranchId(orderData.branchId)
-    const session = authRepository.getCurrentSession()
+    const session = requireSession()
     return orderRepository.holdOrder({
       ...orderData,
       branchId,
-      cashierId: orderData.cashierId || session?.id || null,
+      cashierId: orderData.cashierId || session.id,
     })
   })
 
   ipcMain.handle('pos:get-held-orders', async (_event, branchId) => {
+    requireSession()
     return orderRepository.getHeldOrders(getActiveBranchId(branchId))
   })
 
   ipcMain.handle('pos:cancel-order', async (_event, { orderId, reason }) => {
-    assertPermission('pos:create_order')
-    const session = authRepository.getCurrentSession()
-    return orderRepository.cancelOrder(orderId, reason, session?.id || null)
+    requirePermission('pos:create_order')
+    const session = requireSession()
+    const result = orderRepository.cancelOrder(orderId, reason, session.id)
+    broadcast('kitchen:order-update', { orderId, status: 'CANCELLED' })
+    return result
+  })
+
+  ipcMain.handle('pos:refund-order', async (_event, data) => {
+    requirePermission('pos:process_refund')
+    const session = requireSession()
+    const result = orderRepository.refundOrder({
+      ...data,
+      cashierId: session.id,
+    })
+    broadcast('pos:status-change', { orderId: data.orderId, status: result?.status })
+    return result
   })
 
   ipcMain.handle('pos:get-orders', async (_event, params = {}) => {
+    requireSession()
     return orderRepository.getOrders({
       ...params,
       branchId: getActiveBranchId(params.branchId),

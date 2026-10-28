@@ -17,6 +17,7 @@ import {
   PieChart,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker from '../../components/ImagePicker.jsx'
 
 export default function RecipeManagerView({ onBack }) {
   const [recipes, setRecipes] = useState([])
@@ -32,6 +33,7 @@ export default function RecipeManagerView({ onBack }) {
   const [yieldQuantity, setYieldQuantity] = useState('1.0')
   const [recipeNotes, setRecipeNotes] = useState('')
   const [recipeIngredients, setRecipeIngredients] = useState([]) // Array of { inventoryItemId, quantityRequired, wastagePercentage }
+  const [recipeImageUrl, setRecipeImageUrl] = useState(null)
 
   // Toast
   const [toast, setToast] = useState(null)
@@ -73,6 +75,7 @@ export default function RecipeManagerView({ onBack }) {
     setSelectedProductId(products[0]?.id || '')
     setYieldQuantity('1.0')
     setRecipeNotes('')
+    setRecipeImageUrl(null)
     setRecipeIngredients([
       { inventoryItemId: rawItems[0]?.id || '', quantityRequired: '1.0', wastagePercentage: '0.0' },
     ])
@@ -85,6 +88,7 @@ export default function RecipeManagerView({ onBack }) {
     setSelectedProductId(rec.product_id)
     setYieldQuantity(String(rec.yield_quantity || 1.0))
     setRecipeNotes(rec.notes || '')
+    setRecipeImageUrl(rec.image_url || null)
     setRecipeIngredients(
       rec.ingredients.map((ing) => ({
         inventoryItemId: ing.inventory_item_id,
@@ -134,6 +138,7 @@ export default function RecipeManagerView({ onBack }) {
         variationId: editingRecipe?.variation_id || null,
         yieldQuantity: parseFloat(yieldQuantity || 1.0),
         notes: recipeNotes,
+        imageUrl: recipeImageUrl,
         ingredients: recipeIngredients.map((ing) => ({
           inventoryItemId: ing.inventoryItemId,
           quantityRequired: parseFloat(ing.quantityRequired || 1.0),
@@ -375,6 +380,7 @@ export default function RecipeManagerView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveRecipe} className="flex-1 overflow-y-auto space-y-4 pr-1">
+              <ImagePicker label="Recipe photo" value={recipeImageUrl} onChange={setRecipeImageUrl} />
               {/* Product Selector */}
               <div className="grid grid-cols-2 gap-3">
                 <div>

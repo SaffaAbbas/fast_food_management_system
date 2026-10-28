@@ -207,4 +207,94 @@ export const tableRepository = {
 
     return transferTx()
   },
+
+  mergeTables: ({ sourceTableId, targetTableId, reason = 'Combine party' }) => {
+    const db = getDb()
+    const now = new Date().toISOString()
+
+    const mergeTx = db.transaction(() => {
+      const source = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(sourceTableId)
+      const target = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(targetTableId)
+      if (!source || !target) throw new Error('Source or target table was not found.')
+      if (!source.current_order_id) throw new Error(`Table ${source.table_number} has no active order to merge.`)
+      if (!target.current_order_id) throw new Error(`Table ${target.table_number} has no active order to receive the merge.`)
+      if (source.current_order_id === target.current_order_id) {
+        throw new Error('Both tables already share the same order.')
+      }
+
+      const sourceOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(source.current_order_id)
+      const targetOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(target.current_order_id)
+      if (!sourceOrder || !targetOrder) throw new Error('One of the table orders could not be loaded.')
+      if (['COMPLETED', 'CANCELLED', 'REFUNDED'].includes(sourceOrder.status) ||
+          ['COMPLETED', 'CANCELLED', 'REFUNDED'].includes(targetOrder.status)) {
+        throw new Error('Cannot merge completed, cancelled, or refunded orders.')
+      }
+
+      const sourceItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(sourceOrder.id)
+      for (const item of sourceItems) {
+        db.prepare('UPDATE order_items SET order_id = ? WHERE id = ?').run(targetOrder.id, item.id)
+      }
+
+      db.prepare(`
+        UPDATE orders
+        SET subtotal_cents = COALESCE(subtotal_cents, 0) + ?,
+            discount_cents = COALESCE(discount_cents, 0) + ?,
+            tax_cents = COALESCE(tax_cents, 0) + ?,
+            service_charge_cents = COALESCE(service_charge_cents, 0) + ?,
+            total_cents = COALESCE(total_cents, 0) + ?,
+            paid_cents = COALESCE(paid_cents, 0) + ?,
+            notes = TRIM(COALESCE(notes, '') || char(10) || 'Merged from table ' || ? || ' (' || ? || ')'),
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        sourceOrder.subtotal_cents || 0,
+        sourceOrder.discount_cents || 0,
+        sourceOrder.tax_cents || 0,
+        sourceOrder.service_charge_cents || 0,
+        sourceOrder.total_cents || 0,
+        sourceOrder.paid_cents || 0,
+        source.table_number,
+        sourceOrder.order_number,
+        now,
+        targetOrder.id
+      )
+
+      db.prepare(`
+        UPDATE orders
+        SET status = 'CANCELLED',
+            notes = TRIM(COALESCE(notes, '') || char(10) || '[Merged into ' || ? || ']'),
+            updated_at = ?
+        WHERE id = ?
+      `).run(targetOrder.order_number, now, sourceOrder.id)
+
+      db.prepare(`
+        INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+        VALUES (?, ?, ?, 'CANCELLED', NULL, ?, ?)
+      `).run(uuid(), sourceOrder.id, sourceOrder.status, `Merged into ${targetOrder.order_number}. ${reason}`, now)
+
+      db.prepare(`
+        INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+        VALUES (?, ?, ?, ?, NULL, ?, ?)
+      `).run(uuid(), targetOrder.id, targetOrder.status, targetOrder.status, `Merged table ${source.table_number} into this order. ${reason}`, now)
+
+      db.prepare("UPDATE dining_tables SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ? WHERE id = ?")
+        .run(now, sourceTableId)
+
+      logAudit(target.branch_id, 'MERGE_TABLES', 'TABLE', targetOrder.id, {
+        sourceTable: source.table_number,
+        targetTable: target.table_number,
+        sourceOrder: sourceOrder.order_number,
+        targetOrder: targetOrder.order_number,
+        reason,
+      })
+
+      return {
+        survivingOrderId: targetOrder.id,
+        sourceTableNumber: source.table_number,
+        targetTableNumber: target.table_number,
+      }
+    })
+
+    return mergeTx()
+  },
 }

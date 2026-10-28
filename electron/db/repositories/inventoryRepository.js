@@ -125,8 +125,8 @@ export const inventoryRepository = {
       db.prepare(`
         INSERT INTO inventory_items (
           id, branch_id, name, sku, unit_id, current_stock, minimum_level,
-          cost_per_unit_cents, category, supplier_id, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          cost_per_unit_cents, category, supplier_id, image_url, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         id,
         branchId,
@@ -138,6 +138,7 @@ export const inventoryRepository = {
         parseInt(itemData.costPerUnitCents || 0, 10),
         itemData.category || 'General',
         itemData.supplierId || null,
+        itemData.imageUrl || itemData.image_url || null,
         now,
         now
       )
@@ -185,6 +186,7 @@ export const inventoryRepository = {
           unit_id = COALESCE(?, unit_id),
           minimum_level = COALESCE(?, minimum_level),
           cost_per_unit_cents = COALESCE(?, cost_per_unit_cents),
+          image_url = COALESCE(?, image_url),
           category = COALESCE(?, category),
           supplier_id = COALESCE(?, supplier_id),
           updated_at = ?
@@ -195,6 +197,7 @@ export const inventoryRepository = {
       itemData.unitId ?? null,
       itemData.minimumLevel !== undefined ? parseFloat(itemData.minimumLevel) : null,
       itemData.costPerUnitCents !== undefined ? parseInt(itemData.costPerUnitCents, 10) : null,
+      itemData.imageUrl !== undefined ? itemData.imageUrl : (itemData.image_url ?? null),
       itemData.category ?? null,
       itemData.supplierId ?? null,
       now,
@@ -390,7 +393,7 @@ export const inventoryRepository = {
     }
   },
 
-  saveRecipe: ({ productId, variationId, yieldQuantity, notes, ingredients }) => {
+  saveRecipe: ({ productId, variationId, yieldQuantity, notes, ingredients, imageUrl = null }) => {
     const db = getDb()
     const saveRecipeTx = db.transaction(() => {
       let existing = db.prepare(`
@@ -400,15 +403,15 @@ export const inventoryRepository = {
 
       let recipeId = existing?.id
       if (recipeId) {
-        db.prepare('UPDATE recipes SET yield_quantity = ?, notes = ? WHERE id = ?')
-          .run(parseFloat(yieldQuantity || 1.0), notes || null, recipeId)
+        db.prepare('UPDATE recipes SET yield_quantity = ?, notes = ?, image_url = COALESCE(?, image_url) WHERE id = ?')
+          .run(parseFloat(yieldQuantity || 1.0), notes || null, imageUrl, recipeId)
         db.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(recipeId)
       } else {
         recipeId = uuid()
         db.prepare(`
-          INSERT INTO recipes (id, product_id, variation_id, yield_quantity, notes)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(recipeId, productId, variationId || null, parseFloat(yieldQuantity || 1.0), notes || null)
+          INSERT INTO recipes (id, product_id, variation_id, yield_quantity, notes, image_url)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(recipeId, productId, variationId || null, parseFloat(yieldQuantity || 1.0), notes || null, imageUrl)
       }
 
       if (Array.isArray(ingredients)) {
@@ -446,6 +449,9 @@ export const inventoryRepository = {
     const db = getDb()
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
     if (!order) return { success: false, reason: 'Order not found' }
+    if (order.stock_posted === 1) {
+      return { success: true, skipped: true, reason: 'Stock already posted for this sale' }
+    }
 
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId)
     const now = new Date().toISOString()
@@ -499,10 +505,63 @@ export const inventoryRepository = {
         }
       }
 
+      db.prepare('UPDATE orders SET stock_posted = 1, updated_at = ? WHERE id = ?').run(now, orderId)
       return deductions
     })
 
     return deductionTx()
+  },
+
+  reverseRecipeStockForOrder: (orderId, reason = 'Refund restock') => {
+    const db = getDb()
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
+    if (!order) return { success: false, reason: 'Order not found' }
+    if (order.stock_posted !== 1) {
+      return { success: true, skipped: true, reason: 'No posted stock to reverse' }
+    }
+
+    const now = new Date().toISOString()
+    const reverseTx = db.transaction(() => {
+      const movements = db.prepare(`
+        SELECT * FROM stock_movements
+        WHERE reference_type = 'ORDER' AND reference_id = ? AND movement_type = 'SALE_DEDUCTION'
+      `).all(orderId)
+
+      for (const mv of movements) {
+        const rawItem = db.prepare('SELECT current_stock FROM inventory_items WHERE id = ?').get(mv.inventory_item_id)
+        if (!rawItem) continue
+        const prevStock = parseFloat(rawItem.current_stock)
+        const qty = parseFloat(mv.quantity)
+        const newStock = parseFloat((prevStock + qty).toFixed(3))
+
+        db.prepare('UPDATE inventory_items SET current_stock = ?, updated_at = ? WHERE id = ?')
+          .run(newStock, now, mv.inventory_item_id)
+
+        db.prepare(`
+          INSERT INTO stock_movements (
+            id, branch_id, inventory_item_id, movement_type, quantity,
+            previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
+            reason, created_at
+          ) VALUES (?, ?, ?, 'SALE_REVERSAL', ?, ?, ?, ?, 'ORDER', ?, ?, ?)
+        `).run(
+          uuid(),
+          order.branch_id,
+          mv.inventory_item_id,
+          qty,
+          prevStock,
+          newStock,
+          mv.unit_cost_cents,
+          orderId,
+          reason,
+          now
+        )
+      }
+
+      db.prepare('UPDATE orders SET stock_posted = 0, updated_at = ? WHERE id = ?').run(now, orderId)
+      return { reversed: movements.length }
+    })
+
+    return reverseTx()
   },
 
   // ==========================================

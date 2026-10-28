@@ -205,6 +205,7 @@ async function runTests() {
       }
     } catch (e) {}
   }
+  process.exit(0)
 }
 
 runTests().catch((err) => {

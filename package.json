@@ -17,6 +17,7 @@
     "test:crm": "electron test/crm_reservations_test.js",
     "test:delivery": "electron test/delivery_dispatch_test.js",
     "test:reports": "electron test/reports_settings_test.js",
+    "test:all": "npm run test:db && npm run test:auth && npm run test:catalog && npm run test:pos && npm run test:kitchen && npm run test:inventory && npm run test:staff && npm run test:crm && npm run test:delivery && npm run test:reports",
     "seed:dummy": "electron electron/db/populate_all_dummy_data.js",
     "inspect:db": "electron test/inspect_current_db.js",
     "debug:order": "electron test/debug_create_order.js",
@@ -24,6 +25,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "better-sqlite3": "^11.8.1",
     "lucide-react": "^0.475.0",
     "react": "^18.2.0",

@@ -219,6 +219,7 @@ async function runTests() {
     console.log('====================================================')
     console.log('🎉 ALL PHASE 8 CASH DRAWER & STAFF ATTENDANCE TESTS PASSED!')
     console.log('====================================================')
+    process.exit(0)
   } catch (err) {
     console.error('❌ Test suite failed:', err)
     process.exit(1)

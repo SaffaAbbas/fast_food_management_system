@@ -229,6 +229,7 @@ async function runTestSuite() {
   console.log('\n====================================================')
   console.log('🎉 ALL PHASE 6 KITCHEN DISPLAY SYSTEM TESTS PASSED!')
   console.log('====================================================\n')
+  process.exit(0)
 }
 
 runTestSuite().catch((err) => {

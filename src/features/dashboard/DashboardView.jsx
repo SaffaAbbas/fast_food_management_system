@@ -69,20 +69,19 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
   return (
     <div className="space-y-6">
       {/* Dashboard Top Header & Range Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950/70 border border-slate-800 rounded-xl p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
         <div>
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-orange-400" />
-            Live Restaurant Performance & Analytics
+          <h2 className="text-[18px] font-semibold text-slate-900 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-orange-600" />
+            Today at a glance
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Real-time operational metrics, sales totals, and live kitchen order performance.
+          <p className="text-[13px] text-slate-500 mt-1">
+            Sales, orders, and kitchen activity from this branch.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Date range filter pills */}
-          <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
+          <div className="flex bg-slate-100 p-1 rounded-xl text-[13px]">
             {[
               { id: 'today', label: 'Today' },
               { id: 'yesterday', label: 'Yesterday' },
@@ -93,7 +92,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
                 key={tab.id}
                 onClick={() => setDateRange(tab.id)}
                 className={`px-3 py-1 rounded-md font-medium transition-colors ${
-                  dateRange === tab.id ? 'bg-orange-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                  dateRange === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 {tab.label}
@@ -104,7 +103,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
           <button
             onClick={() => fetchMetrics(dateRange)}
             title="Refresh Metrics"
-            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-orange-400' : ''}`} />
           </button>
@@ -114,14 +113,14 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
       {/* 4 Primary KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Gross Sales */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 relative overflow-hidden group hover:border-slate-700 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Gross Sales</span>
+            <span className="text-[13px] font-medium text-slate-500">Gross sales</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-950 border border-emerald-800/60 flex items-center justify-center text-emerald-400">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white font-mono">
+          <div className="text-[26px] font-semibold tracking-tight text-slate-900">
             ${(sales.grossSalesCents / 100).toFixed(2)}
           </div>
           <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
@@ -131,14 +130,14 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         </div>
 
         {/* Card 2: Total Orders */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 relative overflow-hidden group hover:border-slate-700 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Orders</span>
+            <span className="text-[13px] font-medium text-slate-500">Total orders</span>
             <div className="w-8 h-8 rounded-lg bg-orange-950 border border-orange-800/60 flex items-center justify-center text-orange-400">
               <ShoppingBag className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white font-mono">
+          <div className="text-[26px] font-semibold tracking-tight text-slate-900">
             {sales.totalOrders}
           </div>
           <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
@@ -148,14 +147,14 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         </div>
 
         {/* Card 3: Average Order Value */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 relative overflow-hidden group hover:border-slate-700 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Avg Order Value</span>
+            <span className="text-[13px] font-medium text-slate-500">Average order</span>
             <div className="w-8 h-8 rounded-lg bg-sky-950 border border-sky-800/60 flex items-center justify-center text-sky-400">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white font-mono">
+          <div className="text-[26px] font-semibold tracking-tight text-slate-900">
             ${(sales.avgOrderCents / 100).toFixed(2)}
           </div>
           <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
@@ -165,14 +164,14 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         </div>
 
         {/* Card 4: Tax Collected & Expenses */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 relative overflow-hidden group hover:border-slate-700 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Tax & Expenses</span>
+            <span className="text-[13px] font-medium text-slate-500">Tax collected</span>
             <div className="w-8 h-8 rounded-lg bg-purple-950 border border-purple-800/60 flex items-center justify-center text-purple-400">
               <Receipt className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white font-mono">
+          <div className="text-[26px] font-semibold tracking-tight text-slate-900">
             ${(sales.taxCents / 100).toFixed(2)}
           </div>
           <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
@@ -185,9 +184,9 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
       {/* Middle Row: Sales by Channel & Payments Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Sales by Order Channel */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <h3 className="text-[14px] font-semibold text-slate-800 flex items-center gap-2">
               <Layers className="w-4 h-4 text-orange-400" />
               Sales by Order Channel
             </h3>
@@ -205,7 +204,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
                   {ordersByType.DINE_IN.count} ({dineInPct}%) • ${(ordersByType.DINE_IN.totalCents / 100).toFixed(2)}
                 </span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                 <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${dineInPct}%` }} />
               </div>
             </div>
@@ -220,7 +219,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
                   {ordersByType.TAKEAWAY.count} ({takeawayPct}%) • ${(ordersByType.TAKEAWAY.totalCents / 100).toFixed(2)}
                 </span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                 <div className="h-full bg-sky-500 rounded-full transition-all" style={{ width: `${takeawayPct}%` }} />
               </div>
             </div>
@@ -235,7 +234,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
                   {ordersByType.DELIVERY.count} ({deliveryPct}%) • ${(ordersByType.DELIVERY.totalCents / 100).toFixed(2)}
                 </span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                 <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${deliveryPct}%` }} />
               </div>
             </div>
@@ -243,9 +242,9 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         </div>
 
         {/* Payments Breakdown */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <h3 className="text-[14px] font-semibold text-slate-800 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-emerald-400" />
               Settled Payments
             </h3>
@@ -285,7 +284,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         {/* Low Stock Alerts */}
         <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <h3 className="text-[14px] font-semibold text-slate-800 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               Inventory Stock Warnings
             </h3>
@@ -325,7 +324,7 @@ export default function DashboardView({ onNavigate, onTriggerTestOrder }) {
         {/* Top-Selling Products */}
         <div className="lg:col-span-2 bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <h3 className="text-[14px] font-semibold text-slate-800 flex items-center gap-2">
               <Package className="w-4 h-4 text-orange-400" />
               Top Selling Products
             </h3>

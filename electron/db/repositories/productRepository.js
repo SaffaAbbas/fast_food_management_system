@@ -42,7 +42,7 @@ export const productRepository = {
     const db = getDb()
     return db.prepare(`
       SELECT c.id, c.name, c.code, c.display_order, c.is_active,
-             c.parent_id, c.is_visible_pos, c.is_visible_online,
+             c.parent_id, c.is_visible_pos, c.is_visible_online, c.image_url,
              COUNT(p.id) as product_count
       FROM categories c
       LEFT JOIN products p ON c.id = p.category_id AND p.is_active = 1
@@ -52,14 +52,14 @@ export const productRepository = {
     `).all(branchId)
   },
 
-  createCategory: ({ branchId, name, code, displayOrder = 0, parentId = null, isVisiblePos = 1, isVisibleOnline = 1 }) => {
+  createCategory: ({ branchId, name, code, displayOrder = 0, parentId = null, isVisiblePos = 1, isVisibleOnline = 1, imageUrl = null }) => {
     const db = getDb()
     const now = new Date().toISOString()
     const id = uuid()
 
     db.prepare(`
-      INSERT INTO categories (id, branch_id, name, code, display_order, parent_id, is_visible_pos, is_visible_online, is_active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      INSERT INTO categories (id, branch_id, name, code, display_order, parent_id, is_visible_pos, is_visible_online, image_url, is_active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       id,
       branchId || null,
@@ -69,6 +69,7 @@ export const productRepository = {
       parentId || null,
       isVisiblePos !== undefined ? (isVisiblePos ? 1 : 0) : 1,
       isVisibleOnline !== undefined ? (isVisibleOnline ? 1 : 0) : 1,
+      imageUrl || null,
       now
     )
 
@@ -76,11 +77,11 @@ export const productRepository = {
     return { id, name, code, displayOrder, is_active: 1 }
   },
 
-  updateCategory: (id, { name, code, displayOrder, parentId, isVisiblePos = 1, isVisibleOnline = 1, isActive = 1 }) => {
+  updateCategory: (id, { name, code, displayOrder, parentId, isVisiblePos = 1, isVisibleOnline = 1, isActive = 1, imageUrl }) => {
     const db = getDb()
     db.prepare(`
       UPDATE categories
-      SET name = ?, code = ?, display_order = ?, parent_id = ?, is_visible_pos = ?, is_visible_online = ?, is_active = ?
+      SET name = ?, code = ?, display_order = ?, parent_id = ?, is_visible_pos = ?, is_visible_online = ?, is_active = ?, image_url = COALESCE(?, image_url)
       WHERE id = ?
     `).run(
       name.trim(),
@@ -90,6 +91,7 @@ export const productRepository = {
       isVisiblePos !== undefined ? (isVisiblePos ? 1 : 0) : 1,
       isVisibleOnline !== undefined ? (isVisibleOnline ? 1 : 0) : 1,
       isActive,
+      imageUrl !== undefined ? imageUrl : null,
       id
     )
 
@@ -123,7 +125,7 @@ export const productRepository = {
              p.preparation_time_minutes, p.is_available, p.has_variations, p.track_inventory,
              p.is_featured, p.is_discount_eligible, p.min_order_qty, p.max_order_qty,
              p.price_dine_in_cents, p.price_takeaway_cents, p.price_delivery_cents,
-             p.is_active, p.created_at, p.updated_at
+             p.image_url, p.is_active, p.created_at, p.updated_at
       FROM products p
       JOIN categories c ON p.category_id = c.id
       WHERE (p.branch_id = ? OR p.branch_id IS NULL)
@@ -200,14 +202,14 @@ export const productRepository = {
       // 1. Insert product
       db.prepare(`
         INSERT INTO products (
-          id, branch_id, category_id, name, sku, barcode, description,
+          id, branch_id, category_id, name, sku, barcode, description, image_url,
           base_price_cents, cost_price_cents, tax_percentage, preparation_time_minutes,
           is_available, has_variations, track_inventory,
           is_featured, is_discount_eligible, min_order_qty, max_order_qty,
           price_dine_in_cents, price_takeaway_cents, price_delivery_cents,
           is_active, created_at, updated_at
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?, ?,
@@ -222,6 +224,7 @@ export const productRepository = {
         productData.sku ? productData.sku.trim() : `SKU-${Date.now().toString().slice(-6)}`,
         productData.barcode ? productData.barcode.trim() : null,
         productData.description || null,
+        productData.imageUrl || productData.image_url || null,
         productData.basePriceCents || 0,
         productData.costPriceCents || 0,
         productData.taxPercentage || 0.0,
@@ -325,7 +328,7 @@ export const productRepository = {
 
       db.prepare(`
         UPDATE products
-        SET category_id = ?, name = ?, sku = ?, barcode = ?, description = ?,
+        SET category_id = ?, name = ?, sku = ?, barcode = ?, description = ?, image_url = ?,
             base_price_cents = ?, cost_price_cents = ?, tax_percentage = ?,
             preparation_time_minutes = ?, is_available = ?, has_variations = ?,
             track_inventory = ?, is_featured = ?, is_discount_eligible = ?,
@@ -339,6 +342,7 @@ export const productRepository = {
         productData.sku ? productData.sku.trim() : existing.sku,
         productData.barcode !== undefined ? (productData.barcode ? productData.barcode.trim() : null) : existing.barcode,
         productData.description !== undefined ? productData.description : existing.description,
+        productData.imageUrl !== undefined ? productData.imageUrl : (productData.image_url !== undefined ? productData.image_url : existing.image_url),
         basePrice,
         costPrice,
         taxRate,
@@ -436,7 +440,7 @@ export const productRepository = {
     const db = getDb()
     const combos = db.prepare(`
       SELECT c.id, c.name, c.code, c.description, c.price_cents, c.is_available,
-             c.available_from, c.available_to, c.is_active, c.created_at
+             c.available_from, c.available_to, c.image_url, c.is_active, c.created_at
       FROM combos c
       WHERE (c.branch_id = ? OR c.branch_id IS NULL) AND c.is_active = 1
       ORDER BY c.name ASC
@@ -454,15 +458,15 @@ export const productRepository = {
     return combos
   },
 
-  createCombo: ({ branchId, name, code, description, priceCents, isAvailable = 1, availableFrom = null, availableTo = null, items }) => {
+  createCombo: ({ branchId, name, code, description, priceCents, isAvailable = 1, availableFrom = null, availableTo = null, items, imageUrl = null }) => {
     const db = getDb()
     const now = new Date().toISOString()
     const comboId = uuid()
 
     const createTx = db.transaction(() => {
       db.prepare(`
-        INSERT INTO combos (id, branch_id, name, code, description, price_cents, is_available, available_from, available_to, is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        INSERT INTO combos (id, branch_id, name, code, description, price_cents, image_url, is_available, available_from, available_to, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         comboId,
         branchId || null,
@@ -470,6 +474,7 @@ export const productRepository = {
         code || null,
         description || null,
         priceCents,
+        imageUrl || null,
         isAvailable ? 1 : 0,
         availableFrom || null,
         availableTo || null,
@@ -493,7 +498,7 @@ export const productRepository = {
     return createTx()
   },
 
-  updateCombo: (id, { name, code, description, priceCents, isAvailable, availableFrom, availableTo, items }) => {
+  updateCombo: (id, { name, code, description, priceCents, isAvailable, availableFrom, availableTo, items, imageUrl }) => {
     const db = getDb()
     const now = new Date().toISOString()
 
@@ -501,7 +506,7 @@ export const productRepository = {
       db.prepare(`
         UPDATE combos
         SET name = ?, code = ?, description = ?, price_cents = ?,
-            is_available = ?, available_from = ?, available_to = ?, updated_at = ?
+            is_available = ?, available_from = ?, available_to = ?, image_url = COALESCE(?, image_url), updated_at = ?
         WHERE id = ?
       `).run(
         name.trim(),
@@ -511,6 +516,7 @@ export const productRepository = {
         isAvailable !== undefined ? (isAvailable ? 1 : 0) : 1,
         availableFrom || null,
         availableTo || null,
+        imageUrl !== undefined ? imageUrl : null,
         now,
         id
       )

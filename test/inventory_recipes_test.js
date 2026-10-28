@@ -276,6 +276,7 @@ async function runTestSuite() {
   console.log('\n====================================================')
   console.log('🎉 ALL PHASE 7 INVENTORY, RECIPE & EXPENSE TESTS PASSED!')
   console.log('====================================================\n')
+  process.exit(0)
 }
 
 runTestSuite().catch((err) => {

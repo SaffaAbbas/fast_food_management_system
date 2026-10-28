@@ -17,6 +17,7 @@ import {
   Scale,
   ArrowLeft
 } from 'lucide-react'
+import ImagePicker from '../../components/ImagePicker.jsx'
 
 export default function InventoryManagerView({ onBack }) {
   const [items, setItems] = useState([])
@@ -44,6 +45,7 @@ export default function InventoryManagerView({ onBack }) {
     costPerUnit: '0.00',
     category: 'General',
     supplierId: '',
+    imageUrl: null,
   })
 
   const [adjustFormData, setAdjustFormData] = useState({
@@ -116,6 +118,7 @@ export default function InventoryManagerView({ onBack }) {
         costPerUnitCents: Math.round(parseFloat(formData.costPerUnit || 0) * 100),
         category: formData.category || 'General',
         supplierId: formData.supplierId || null,
+        imageUrl: formData.imageUrl || null,
       }
 
       if (editingItem) {
@@ -182,6 +185,7 @@ export default function InventoryManagerView({ onBack }) {
       costPerUnit: '0.00',
       category: 'General',
       supplierId: '',
+      imageUrl: null,
     })
     setIsAddItemModalOpen(true)
   }
@@ -197,6 +201,7 @@ export default function InventoryManagerView({ onBack }) {
       costPerUnit: (item.cost_per_unit_cents / 100).toFixed(2),
       category: item.category || 'General',
       supplierId: item.supplier_id || '',
+      imageUrl: item.image_url || null,
     })
     setIsAddItemModalOpen(true)
   }
@@ -456,6 +461,11 @@ export default function InventoryManagerView({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveItem} className="space-y-4">
+              <ImagePicker
+                label="Item photo"
+                value={formData.imageUrl}
+                onChange={(imageUrl) => setFormData({ ...formData, imageUrl })}
+              />
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Item Name *</label>
                 <input

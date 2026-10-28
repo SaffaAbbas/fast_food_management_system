@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import PaymentModal from './PaymentModal.jsx'
 import ReceiptModal from './ReceiptModal.jsx'
+import { EntityImage } from '../../components/ImagePicker.jsx'
 
 export default function PosView({ currentUser, preselectedTable, onNavigateToTables, onNavigateToDashboard, onBack }) {
   // Order Parameters
@@ -614,6 +615,13 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                         </div>
                       </div>
 
+                      {p.image_url && (
+                        <EntityImage
+                          id={p.image_url}
+                          alt={p.name}
+                          className="w-full aspect-square rounded-xl mb-2 bg-white"
+                        />
+                      )}
                       {/* Product Name */}
                       <h4 className="font-bold text-xs text-white line-clamp-2 leading-snug group-hover:text-orange-400 transition-colors">
                         {p.name}

@@ -111,7 +111,7 @@ export const customerRepository = {
     return { ...customer, recentOrders, loyaltyHistory }
   },
 
-  createCustomer: ({ branchId, name, phone, email, address, tag = 'REGULAR', birthDate = null, notes = null }) => {
+  createCustomer: ({ branchId, name, phone, email, address, tag = 'REGULAR', birthDate = null, notes = null, imageUrl = null }) => {
     const db = getDb()
     const validBranchId = resolveValidBranchId(db, branchId)
     const now = new Date().toISOString()
@@ -128,9 +128,9 @@ export const customerRepository = {
     db.prepare(`
       INSERT INTO customers (
         id, branch_id, name, phone, email, address, tag, birth_date,
-        notes, loyalty_points, credit_balance_cents, total_spent_cents,
+        notes, image_url, loyalty_points, credit_balance_cents, total_spent_cents,
         order_count, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 1, ?, ?)
     `).run(
       id,
       validBranchId,
@@ -141,6 +141,7 @@ export const customerRepository = {
       tag || 'REGULAR',
       birthDate || null,
       notes ? notes.trim() : null,
+      imageUrl || null,
       now,
       now
     )
@@ -149,7 +150,7 @@ export const customerRepository = {
     return customerRepository.getCustomerById(id)
   },
 
-  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive }) => {
+  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive, imageUrl }) => {
     const db = getDb()
     const existing = db.prepare('SELECT * FROM customers WHERE id = ?').get(id)
     if (!existing) throw new Error('Customer not found.')
@@ -173,6 +174,7 @@ export const customerRepository = {
           tag = ?,
           birth_date = ?,
           notes = ?,
+          image_url = ?,
           is_active = ?,
           updated_at = ?
       WHERE id = ?
@@ -184,6 +186,7 @@ export const customerRepository = {
       tag !== undefined ? tag : existing.tag,
       birthDate !== undefined ? birthDate : existing.birth_date,
       notes !== undefined ? (notes ? notes.trim() : null) : existing.notes,
+      imageUrl !== undefined ? imageUrl : existing.image_url,
       isActive !== undefined ? (isActive ? 1 : 0) : existing.is_active,
       now,
       id

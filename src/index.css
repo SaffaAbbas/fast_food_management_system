@@ -1,35 +1,268 @@
 @import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color-scheme: dark;
+  color-scheme: light;
+  --font: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", "Segoe UI", sans-serif;
+  --brand: #ea580c;
+  --brand-strong: #c2410c;
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  padding: 0;
-  min-height: 100vh;
-  background-color: #0f172a;
-  color: #f8fafc;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.011em;
+  background: var(--bg);
+  color: var(--ink);
   overflow: hidden;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Custom scrollbars for desktop & POS */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  color-scheme: light;
+}
+
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #d1d5db;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #9ca3af;
+}
+
+/* Readable type scale — the old POS used 10px labels */
+.text-\[10px\] {
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.text-\[11px\] {
+  font-size: 12.5px !important;
+  line-height: 1.4 !important;
+}
+
+.text-xs {
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+.text-sm {
+  font-size: 14.5px !important;
+}
+
+/* Only real bg-* classes (not hover:bg-*), including /90 opacity used on Kitchen */
+[class^="bg-slate-950"],
+[class*=" bg-slate-950"],
+[class^="from-slate-950"],
+[class*=" from-slate-950"],
+[class*=" via-slate-950"],
+[class*=" to-slate-950"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+[class^="bg-slate-900"],
+[class*=" bg-slate-900"],
+[class^="from-slate-900"],
+[class*=" from-slate-900"],
+[class*=" via-slate-900"],
+[class*=" to-slate-900"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+[class^="bg-slate-800"],
+[class*=" bg-slate-800"] {
+  background-color: #f3f4f6 !important;
+}
+
+[class*="border-slate-800"],
+[class*="border-slate-700"] {
+  border-color: #e5e7eb !important;
+}
+
+[class*="shadow-slate-"],
+[class*="shadow-orange-950"],
+[class*="shadow-emerald-950"],
+[class*="shadow-rose-950"] {
+  --tw-shadow-color: rgb(15 23 42 / 0.06) !important;
+}
+
+.text-white {
+  color: #111827 !important;
+}
+
+.text-slate-100,
+.text-slate-200 {
+  color: #1f2937 !important;
+}
+
+.text-slate-300 {
+  color: #374151 !important;
+}
+
+.text-slate-400 {
+  color: #6b7280 !important;
+}
+
+.text-slate-500 {
+  color: #6b7280 !important;
+}
+
+.placeholder-slate-500::placeholder {
+  color: #9ca3af !important;
+}
+
+[class*="bg-emerald-950"] {
+  background-color: #ecfdf5 !important;
+}
+
+.border-emerald-800,
+.border-emerald-800\/60 {
+  border-color: #a7f3d0 !important;
+}
+
+.text-emerald-200,
+.text-emerald-300,
+.text-emerald-400 {
+  color: #047857 !important;
+}
+
+[class*="bg-rose-950"] {
+  background-color: #fff1f2 !important;
+}
+
+.border-rose-800 {
+  border-color: #fecdd3 !important;
+}
+
+.text-rose-200,
+.text-rose-300 {
+  color: #be123c !important;
+}
+
+[class*="bg-orange-950"],
+[class*="bg-orange-600/20"],
+[class*="bg-orange-600/10"] {
+  background-color: #fff7ed !important;
+}
+
+[class*="bg-amber-950"] {
+  background-color: #fffbeb !important;
+}
+
+.border-orange-500\/40,
+.border-orange-500\/80 {
+  border-color: #fdba74 !important;
+}
+
+.text-orange-300,
+.text-orange-400 {
+  color: #c2410c !important;
+}
+
+.bg-sky-950 {
+  background-color: #f0f9ff !important;
+}
+
+.bg-purple-950 {
+  background-color: #f5f3ff !important;
+}
+
+/* Product zoom control — black at rest so it reads on light food photos */
+.entity-zoom-btn {
+  background-color: #111827 !important;
+  color: #ffffff !important;
+}
+.entity-zoom-btn svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+.entity-zoom-btn:hover {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+}
+.entity-zoom-btn:hover svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* White text on orange / green / red action buttons */
+[class*="bg-orange-600"],
+[class*="bg-orange-600"] *,
+[class*="bg-orange-500"],
+[class*="bg-orange-500"] *,
+[class*="from-orange-600"],
+[class*="from-orange-600"] *,
+[class*="bg-emerald-600"],
+[class*="bg-emerald-600"] *,
+[class*="bg-emerald-500"],
+[class*="bg-emerald-500"] *,
+[class*="from-emerald-600"],
+[class*="from-emerald-600"] *,
+[class*="bg-amber-600"],
+[class*="bg-amber-600"] *,
+[class*="bg-rose-600"],
+[class*="bg-rose-600"] *,
+[class*="hover:bg-rose-600"]:hover,
+[class*="hover:bg-rose-600"]:hover * {
+  color: #ffffff !important;
+}
+
+[class*="bg-orange-600/20"],
+[class*="bg-orange-600/10"],
+[class*="bg-orange-600/20"] *,
+[class*="bg-orange-600/10"] * {
+  background-color: #fff7ed !important;
+  color: #c2410c !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+  border-color: #d1d5db !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #fb923c !important;
+  box-shadow: 0 0 0 3px rgb(251 146 60 / 0.18);
 }

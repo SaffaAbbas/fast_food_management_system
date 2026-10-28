@@ -12,6 +12,7 @@ import { registerCashDrawerIpcHandlers } from './cashDrawerHandlers.js'
 import { registerStaffIpcHandlers } from './staffHandlers.js'
 import { registerDeliveryHandlers } from './deliveryHandlers.js'
 import { registerReportSettingsHandlers } from './reportSettingsHandlers.js'
+import { registerMediaHandlers } from './mediaHandlers.js'
 import os from 'node:os'
 
 /**
@@ -112,4 +113,5 @@ export function registerIpcHandlers(mainWindow) {
 
   // Register Reports, Analytics & Settings handlers (Phase 11)
   registerReportSettingsHandlers()
+  registerMediaHandlers()
 }
