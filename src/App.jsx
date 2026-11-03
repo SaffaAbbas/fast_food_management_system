@@ -26,6 +26,7 @@ import {
   Square,
   X,
   WifiOff,
+  Wifi,
   RefreshCw,
   Info,
   Database,
@@ -98,6 +99,7 @@ export default function App() {
   const [actionFeedback, setActionFeedback] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [posPreselectedTable, setPosPreselectedTable] = useState(null)
+  const [syncStatus, setSyncStatus] = useState(null)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -164,6 +166,32 @@ export default function App() {
   useEffect(() => {
     loadData()
   }, [selectedCategory, searchQuery])
+
+  useEffect(() => {
+    let unsub = () => {}
+    const loadSync = async () => {
+      if (!window.api?.sync?.getStatus) return
+      try {
+        setSyncStatus(await window.api.sync.getStatus())
+      } catch {
+        /* ignore */
+      }
+    }
+    loadSync()
+    const timer = setInterval(loadSync, 15000)
+    if (window.api?.on) {
+      unsub = window.api.on('db:sync-status', (status) => setSyncStatus(status))
+    }
+    const onOnline = () => {
+      if (window.api?.sync?.runNow) window.api.sync.runNow().then(setSyncStatus).catch(() => {})
+    }
+    window.addEventListener('online', onOnline)
+    return () => {
+      clearInterval(timer)
+      unsub()
+      window.removeEventListener('online', onOnline)
+    }
+  }, [])
 
   const handleLogout = async () => {
     if (window.api?.auth?.logout) {
@@ -276,7 +304,7 @@ export default function App() {
           </div>
           <div className="flex flex-col leading-tight">
             <span className="font-semibold text-[15px] text-slate-900">Restaurant OS</span>
-            <span className="text-[12px] text-slate-500">Offline POS</span>
+            <span className="text-[12px] text-slate-500">Works without internet</span>
           </div>
         </div>
 
@@ -323,8 +351,10 @@ export default function App() {
               <span className={`w-2 h-2 rounded-full ${ipcStatus === 'connected' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
               {currentUser.roleName || currentUser.role_name || 'Staff'}
             </span>
-            <span className="flex items-center gap-1 text-emerald-700">
-              <WifiOff className="w-3 h-3" /> Offline
+            <span className={`flex items-center gap-1 ${syncStatus?.online ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {syncStatus?.online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              {syncStatus?.online ? 'Online' : 'Offline'}
+              {typeof syncStatus?.pending === 'number' && syncStatus.pending > 0 ? ` · ${syncStatus.pending}` : ''}
             </span>
           </div>
         </div>

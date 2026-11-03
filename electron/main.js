@@ -2,6 +2,8 @@ import { app, BrowserWindow, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { registerIpcHandlers } from './ipc/index.js'
+import { startSyncScheduler } from './sync/engine.js'
+import { initDatabase } from './db/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -39,6 +41,7 @@ function createWindow() {
 
   // Register main process secure IPC handlers
   registerIpcHandlers(win)
+  startSyncScheduler(win)
 
   // Show window gracefully when ready-to-show
   win.once('ready-to-show', () => {
@@ -96,4 +99,7 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  initDatabase()
+  createWindow()
+})

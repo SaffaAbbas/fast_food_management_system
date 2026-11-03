@@ -15,7 +15,10 @@ import {
   FileText,
   Clock,
   UserCheck,
-  ArrowLeft
+  ArrowLeft,
+  Cloud,
+  Wifi,
+  WifiOff
 } from 'lucide-react'
 
 export default function SettingsView({ onBack }) {
@@ -42,6 +45,9 @@ export default function SettingsView({ onBack }) {
   const [error, setError] = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
   const [backupPath, setBackupPath] = useState(null)
+  const [syncConfig, setSyncConfig] = useState({ enabled: false, url: '', key: '', hasKey: false })
+  const [syncStatus, setSyncStatus] = useState(null)
+  const [savingSync, setSavingSync] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -62,6 +68,14 @@ export default function SettingsView({ onBack }) {
       if (window.api?.reports?.getAuditLogs) {
         const logs = await window.api.reports.getAuditLogs({ limit: 40 })
         setAuditLogs(logs || [])
+      }
+
+      if (window.api?.sync?.getConfig) {
+        const cfg = await window.api.sync.getConfig()
+        setSyncConfig({ enabled: Boolean(cfg.enabled), url: cfg.url || '', key: '', hasKey: Boolean(cfg.hasKey) })
+      }
+      if (window.api?.sync?.getStatus) {
+        setSyncStatus(await window.api.sync.getStatus())
       }
     } catch (err) {
       console.error('Failed to load settings:', err)
@@ -107,6 +121,38 @@ export default function SettingsView({ onBack }) {
     } catch (err) {
       console.error('Backup failed:', err)
       setError(err.message || 'Database backup failed.')
+    }
+  }
+
+  const handleSaveSync = async () => {
+    setSavingSync(true)
+    setError(null)
+    try {
+      if (!window.api?.sync?.saveConfig) {
+        setError('Cloud sync is only available in the desktop app (not the browser demo).')
+        return
+      }
+      const payload = { enabled: syncConfig.enabled, url: syncConfig.url }
+      if (syncConfig.key) payload.key = syncConfig.key
+      const res = await window.api.sync.saveConfig(payload)
+      setSyncConfig((prev) => ({ ...prev, key: '', hasKey: Boolean(res.hasKey), enabled: res.enabled, url: res.url }))
+      setSyncStatus(res.status || (await window.api.sync.getStatus()))
+      showNotification('Cloud sync settings saved.')
+    } catch (err) {
+      setError(err.message || 'Could not save cloud sync.')
+    } finally {
+      setSavingSync(false)
+    }
+  }
+
+  const handleSyncNow = async () => {
+    try {
+      if (!window.api?.sync?.runNow) return
+      const status = await window.api.sync.runNow()
+      setSyncStatus(status)
+      showNotification(status.message || 'Sync finished.')
+    } catch (err) {
+      setError(err.message || 'Sync failed.')
     }
   }
 
@@ -207,6 +253,15 @@ export default function SettingsView({ onBack }) {
         >
           <Database className="w-4 h-4" />
           SQLite Database & Backup
+        </button>
+        <button
+          onClick={() => setActiveTab('cloud')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === 'cloud' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Cloud className="w-4 h-4" />
+          Cloud sync
         </button>
         <button
           onClick={() => setActiveTab('audit')}
@@ -443,6 +498,77 @@ export default function SettingsView({ onBack }) {
                 {dbStatus?.dbPath || 'restaurant_pos.sqlite'}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'cloud' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 max-w-2xl text-xs">
+          <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-3 flex items-center gap-2">
+            <Cloud className="w-4 h-4 text-orange-400" />
+            Offline POS + Supabase backup
+          </h3>
+          <p className="text-slate-500 leading-relaxed">
+            Sales, menu and customers always save on this computer first. Internet is optional.
+            When the network returns, queued changes upload to your Supabase project.
+          </p>
+          <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
+            syncStatus?.online ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}>
+            {syncStatus?.online ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+            <span className="font-semibold">{syncStatus?.message || 'Checking connection…'}</span>
+            <span className="ml-auto font-mono">{syncStatus?.pending || 0} pending</span>
+          </div>
+          <label className="flex items-center gap-2 font-semibold text-slate-600">
+            <input
+              type="checkbox"
+              checked={syncConfig.enabled}
+              onChange={(e) => setSyncConfig({ ...syncConfig, enabled: e.target.checked })}
+            />
+            Enable cloud sync when internet is available
+          </label>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Supabase project URL</label>
+            <input
+              type="url"
+              placeholder="https://xxxx.supabase.co"
+              value={syncConfig.url}
+              onChange={(e) => setSyncConfig({ ...syncConfig, url: e.target.value })}
+              className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono focus:outline-none focus:border-orange-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">
+              Service role or anon key {syncConfig.hasKey ? '(saved on this PC)' : ''}
+            </label>
+            <input
+              type="password"
+              placeholder={syncConfig.hasKey ? '••••••••  leave blank to keep current key' : 'Paste key from Supabase → Settings → API'}
+              value={syncConfig.key}
+              onChange={(e) => setSyncConfig({ ...syncConfig, key: e.target.value })}
+              className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono focus:outline-none focus:border-orange-500"
+            />
+          </div>
+          <p className="text-slate-500">
+            In Supabase SQL editor, run <span className="font-mono text-slate-700">docs/supabase_schema.sql</span> once
+            so the <span className="font-mono">pos_sync_records</span> table exists.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSaveSync}
+              disabled={savingSync}
+              className="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold hover:bg-orange-500 disabled:opacity-50"
+            >
+              {savingSync ? 'Saving…' : 'Save cloud settings'}
+            </button>
+            <button
+              type="button"
+              onClick={handleSyncNow}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500"
+            >
+              Sync now
+            </button>
           </div>
         </div>
       )}

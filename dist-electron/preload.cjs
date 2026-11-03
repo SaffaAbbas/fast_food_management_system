@@ -186,7 +186,11 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   // System Settings (Phase 11)
   "settings:get-all",
   "settings:get",
-  "settings:save-batch"
+  "settings:save-batch",
+  "sync:get-status",
+  "sync:get-config",
+  "sync:save-config",
+  "sync:run-now"
 ]);
 const ALLOWED_SEND_CHANNELS = /* @__PURE__ */ new Set([
   IPC_CHANNELS.WINDOW_MINIMIZE,
@@ -409,6 +413,12 @@ const api = {
   media: {
     save: (payload) => electron.ipcRenderer.invoke("media:save", payload),
     getDataUrl: (id) => electron.ipcRenderer.invoke("media:get-data-url", id)
+  },
+  sync: {
+    getStatus: () => electron.ipcRenderer.invoke("sync:get-status"),
+    getConfig: () => electron.ipcRenderer.invoke("sync:get-config"),
+    saveConfig: (payload) => electron.ipcRenderer.invoke("sync:save-config", payload),
+    runNow: () => electron.ipcRenderer.invoke("sync:run-now")
   },
   // Settings API (Phase 11)
   settings: {

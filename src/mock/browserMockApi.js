@@ -1151,6 +1151,22 @@ export function initBrowserMockApi() {
       },
     },
 
+    sync: {
+      getStatus: async () => ({
+        online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+        enabled: false,
+        configured: false,
+        pending: 0,
+        failed: 0,
+        message: 'Browser demo stays on this device. Use the Electron desktop app for Supabase sync.',
+      }),
+      getConfig: async () => ({ enabled: false, url: '', hasKey: false }),
+      saveConfig: async () => {
+        throw new Error('Cloud sync is only available in the desktop POS.')
+      },
+      runNow: async () => ({ online: navigator.onLine, pending: 0, message: 'Desktop app required.' }),
+    },
+
     settings: {
       getAll: async () => ({
         tax_rate_percentage: '8.25',

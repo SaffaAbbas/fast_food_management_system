@@ -172,6 +172,10 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'settings:get-all',
   'settings:get',
   'settings:save-batch',
+  'sync:get-status',
+  'sync:get-config',
+  'sync:save-config',
+  'sync:run-now',
 ])
 
 // Whitelist of channels allowed for renderer send
@@ -420,6 +424,13 @@ const api = {
   media: {
     save: (payload) => ipcRenderer.invoke('media:save', payload),
     getDataUrl: (id) => ipcRenderer.invoke('media:get-data-url', id),
+  },
+
+  sync: {
+    getStatus: () => ipcRenderer.invoke('sync:get-status'),
+    getConfig: () => ipcRenderer.invoke('sync:get-config'),
+    saveConfig: (payload) => ipcRenderer.invoke('sync:save-config', payload),
+    runNow: () => ipcRenderer.invoke('sync:run-now'),
   },
 
   // Settings API (Phase 11)

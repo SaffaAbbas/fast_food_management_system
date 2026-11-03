@@ -2,9 +2,36 @@ import crypto from 'node:crypto'
 import { getDb } from './index.js'
 
 /**
- * Durable local outbox. Records are never sent to the cloud in this phase.
- * Schema matches the sync_outbox table created in migration 001.
+ * Durable local outbox. POS writes here immediately; the sync engine
+ * pushes PENDING rows to Supabase when the network is available.
  */
+export function enqueueIfNeeded(entityType, entityId, operation, payload = {}) {
+  const db = getDb()
+  const existing = db.prepare(`
+    SELECT id FROM sync_outbox
+    WHERE entity_type = ? AND entity_id = ? AND status IN ('PENDING', 'SYNCED')
+    LIMIT 1
+  `).get(entityType, entityId)
+  if (existing) return
+  enqueueOutbox(entityType, entityId, operation, payload)
+}
+
+export function queueLocalSnapshot() {
+  const db = getDb()
+  for (const row of db.prepare('SELECT id, name FROM categories').all()) {
+    enqueueIfNeeded('CATEGORY', row.id, 'UPSERT', { id: row.id, name: row.name })
+  }
+  for (const row of db.prepare('SELECT id, name FROM products').all()) {
+    enqueueIfNeeded('PRODUCT', row.id, 'UPSERT', { id: row.id, name: row.name })
+  }
+  for (const row of db.prepare('SELECT id, name FROM customers').all()) {
+    enqueueIfNeeded('CUSTOMER', row.id, 'UPSERT', { id: row.id, name: row.name })
+  }
+  for (const row of db.prepare('SELECT id, order_number FROM orders').all()) {
+    enqueueIfNeeded('ORDER', row.id, 'UPSERT', { id: row.id, orderNumber: row.order_number })
+  }
+}
+
 export function enqueueOutbox(entityType, entityId, operation, payload = {}) {
   try {
     const db = getDb()

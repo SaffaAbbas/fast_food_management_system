@@ -13,6 +13,7 @@ import { registerStaffIpcHandlers } from './staffHandlers.js'
 import { registerDeliveryHandlers } from './deliveryHandlers.js'
 import { registerReportSettingsHandlers } from './reportSettingsHandlers.js'
 import { registerMediaHandlers } from './mediaHandlers.js'
+import { registerSyncHandlers } from './syncHandlers.js'
 import os from 'node:os'
 
 /**
@@ -35,7 +36,7 @@ export function registerIpcHandlers(mainWindow) {
       appPath: app.getAppPath(),
       isPackaged: app.isPackaged,
       mode: process.env.NODE_ENV || 'production',
-      offlineOnly: true,
+      offlineOnly: false,
       timestamp: new Date().toISOString(),
     }
   })
@@ -114,4 +115,5 @@ export function registerIpcHandlers(mainWindow) {
   // Register Reports, Analytics & Settings handlers (Phase 11)
   registerReportSettingsHandlers()
   registerMediaHandlers()
+  registerSyncHandlers()
 }

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { getDb } from '../index.js'
 import { authRepository } from './authRepository.js'
+import { enqueueOutbox } from '../outbox.js'
 
 function uuid() {
   return crypto.randomUUID()
@@ -290,6 +291,7 @@ export const productRepository = {
     })
 
     const newId = createTx()
+    enqueueOutbox('PRODUCT', newId, 'UPSERT', { id: newId, name: productData.name })
     return productRepository.getProductDetails(newId)
   },
 
@@ -411,6 +413,7 @@ export const productRepository = {
     })
 
     updateTx()
+    enqueueOutbox('PRODUCT', id, 'UPSERT', { id, name: productData.name })
     return productRepository.getProductDetails(id)
   },
 

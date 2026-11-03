@@ -1,6 +1,7 @@
 import { getDb } from '../index.js'
 import crypto from 'node:crypto'
 import { authRepository } from './authRepository.js'
+import { enqueueOutbox } from '../outbox.js'
 
 function uuid() {
   return crypto.randomUUID()
@@ -147,6 +148,7 @@ export const customerRepository = {
     )
 
     logAudit(validBranchId, 'CREATE_CUSTOMER', 'CUSTOMER', id, { name, phone, tag })
+    enqueueOutbox('CUSTOMER', id, 'UPSERT', { id, name, phone })
     return customerRepository.getCustomerById(id)
   },
 
@@ -193,6 +195,7 @@ export const customerRepository = {
     )
 
     logAudit(existing.branch_id, 'UPDATE_CUSTOMER', 'CUSTOMER', id, { name, phone, tag })
+    enqueueOutbox('CUSTOMER', id, 'UPSERT', { id, name, phone })
     return customerRepository.getCustomerById(id)
   },
 
