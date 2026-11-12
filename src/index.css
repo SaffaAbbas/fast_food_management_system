@@ -95,6 +95,11 @@ textarea {
   background-image: none !important;
 }
 
+[class*="hover:bg-slate-950"]:hover,
+[class*="hover:bg-slate-900"]:hover {
+  background-color: #fff7ed !important;
+}
+
 [class^="bg-slate-900"],
 [class*=" bg-slate-900"],
 [class^="from-slate-900"],

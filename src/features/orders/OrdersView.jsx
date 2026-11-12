@@ -271,7 +271,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                     <tr
                       key={o.id}
                       onClick={() => handleOpenDetails(o.id)}
-                      className="hover:bg-slate-900/60 transition-colors cursor-pointer"
+                      className="hover:bg-orange-50 transition-colors cursor-pointer"
                     >
                       <td className="py-3 px-4">
                         <div className="font-mono font-bold text-white text-sm">{o.order_number}</div>
@@ -334,7 +334,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                           <button
                             onClick={() => handleOpenDetails(o.id)}
                             title="View Full Order Breakdown"
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-orange-100 text-slate-600 hover:text-orange-700 transition-colors cursor-pointer"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -345,16 +345,16 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                               setReceiptOrder(full)
                             }}
                             title="Print Thermal Ticket"
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-orange-100 text-slate-600 transition-colors cursor-pointer"
                           >
-                            <Printer className="w-3.5 h-3.5 text-orange-400" />
+                            <Printer className="w-3.5 h-3.5 text-orange-600" />
                           </button>
 
                           {!isCancelled && !isCompleted && o.status !== 'REFUNDED' && (
                             <button
                               onClick={() => setCancelModalOrder(o)}
                               title="Cancel Order"
-                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
                             >
                               <Ban className="w-3.5 h-3.5" />
                             </button>
@@ -366,7 +366,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                                 setRefundAmount(((o.paid_cents - (o.refunded_cents || 0)) / 100).toFixed(2))
                               }}
                               title="Refund"
-                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-950 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 transition-colors cursor-pointer"
                             >
                               <DollarSign className="w-3.5 h-3.5" />
                             </button>
