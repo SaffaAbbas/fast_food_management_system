@@ -310,7 +310,12 @@ export const orderRepository = {
 
       const newPaidCents = (order.paid_cents || 0) + totalPaymentCents
       const isFullyPaid = newPaidCents >= order.total_cents
-      const nextStatus = isFullyPaid ? 'COMPLETED' : order.status
+      // Payment must not hide the ticket from kitchen. Keep cooking status until bump.
+      let nextStatus = order.status
+      if (isFullyPaid) {
+        if (order.status === 'DRAFT') nextStatus = 'CONFIRMED'
+        else if (order.status === 'SERVED' || order.kitchen_completed_at) nextStatus = 'COMPLETED'
+      }
 
       // Update Order
       db.prepare(`

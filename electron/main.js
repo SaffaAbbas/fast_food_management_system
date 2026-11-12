@@ -28,7 +28,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     show: false, // Show gracefully when ready
-    backgroundColor: '#0f172a',
+    backgroundColor: '#f3f5f8',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -100,6 +100,9 @@ app.on('activate', () => {
 })
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.restaurantos.pos')
+  }
   initDatabase()
   createWindow()
 })

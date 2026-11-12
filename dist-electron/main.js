@@ -4185,7 +4185,11 @@ const orderRepository = {
       }
       const newPaidCents = (order.paid_cents || 0) + totalPaymentCents;
       const isFullyPaid = newPaidCents >= order.total_cents;
-      const nextStatus = isFullyPaid ? "COMPLETED" : order.status;
+      let nextStatus = order.status;
+      if (isFullyPaid) {
+        if (order.status === "DRAFT") nextStatus = "CONFIRMED";
+        else if (order.status === "SERVED" || order.kitchen_completed_at) nextStatus = "COMPLETED";
+      }
       db.prepare(`
         UPDATE orders
         SET paid_cents = ?, status = ?, updated_at = ?
@@ -5482,11 +5486,17 @@ const kitchenRepository = {
     const statusFilter = params.statusFilter || "ACTIVE";
     let statusCondition = "";
     if (statusFilter === "ACTIVE") {
-      statusCondition = "o.status IN ('CONFIRMED', 'PREPARING', 'READY')";
+      statusCondition = `(
+        o.status IN ('CONFIRMED', 'PREPARING', 'READY')
+        OR (o.status = 'COMPLETED' AND o.kitchen_completed_at IS NULL)
+      )`;
     } else if (statusFilter === "READY") {
       statusCondition = "o.status = 'READY'";
     } else if (statusFilter === "COMPLETED") {
-      statusCondition = "o.status IN ('SERVED', 'COMPLETED') AND datetime(o.updated_at) >= datetime('now', '-60 minutes')";
+      statusCondition = `(
+        o.kitchen_completed_at IS NOT NULL
+        OR o.status = 'SERVED'
+      ) AND datetime(COALESCE(o.kitchen_completed_at, o.updated_at)) >= datetime('now', '-60 minutes')`;
     } else if (statusFilter !== "ALL") {
       statusCondition = `o.status = '${statusFilter}'`;
     } else {
@@ -5709,7 +5719,11 @@ const kitchenRepository = {
     const targetBranchId = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     const activeTickets = db.prepare(`
       SELECT COUNT(*) as count FROM orders
-      WHERE branch_id = ? AND status IN ('CONFIRMED', 'PREPARING', 'READY')
+      WHERE branch_id = ?
+        AND (
+          status IN ('CONFIRMED', 'PREPARING', 'READY')
+          OR (status = 'COMPLETED' AND kitchen_completed_at IS NULL)
+        )
     `).get(targetBranchId).count;
     const preparingTickets = db.prepare(`
       SELECT COUNT(*) as count FROM orders
@@ -29177,7 +29191,7 @@ function createWindow() {
     minHeight: 700,
     show: false,
     // Show gracefully when ready
-    backgroundColor: "#0f172a",
+    backgroundColor: "#f3f5f8",
     webPreferences: {
       preload: path.join(__dirname$1, "preload.cjs"),
       contextIsolation: true,
@@ -29234,6 +29248,9 @@ app.on("activate", () => {
   }
 });
 app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.restaurantos.pos");
+  }
   initDatabase();
   createWindow();
 });

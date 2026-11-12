@@ -27,6 +27,28 @@ import KitchenTicketModal from './KitchenTicketModal.jsx'
 /**
  * Web Audio API synthesizer for kitchen chime (zero external dependencies)
  */
+function kitchenLane(order) {
+  if (order.kitchen_completed_at || order.status === 'SERVED') return 'done'
+  if (order.status === 'READY' || order.isAllItemsReady) return 'ready'
+  if (order.status === 'PREPARING') return 'cooking'
+  const items = order.items || []
+  if (items.some((item) => item.kitchen_status === 'PREPARING' || item.kitchen_status === 'READY')) {
+    return 'cooking'
+  }
+  return 'new'
+}
+
+function laneLabel(lane) {
+  return { new: 'New order', cooking: 'Cooking', ready: 'Ready', done: 'Done' }[lane] || 'New order'
+}
+
+function itemStepLabel(status) {
+  if (status === 'PREPARING') return 'Cooking'
+  if (status === 'READY') return 'Ready'
+  if (status === 'SERVED') return 'Done'
+  return 'New'
+}
+
 function playKitchenChime() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext
@@ -139,19 +161,13 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
     }
   }, [selectedStation, statusFilter])
 
-  // Single Item Status Toggle (PENDING -> PREPARING -> READY -> PENDING)
-  const handleToggleItemStatus = async (item) => {
+  const setItemKitchenStatus = async (item, nextStatus) => {
     try {
-      let nextStatus = 'PREPARING'
-      if (item.kitchen_status === 'PENDING') nextStatus = 'PREPARING'
-      else if (item.kitchen_status === 'PREPARING') nextStatus = 'READY'
-      else if (item.kitchen_status === 'READY') nextStatus = 'PENDING'
-
+      if ((item.kitchen_status || 'PENDING') === nextStatus) return
       await window.api.kitchen.updateItemStatus({
         orderItemId: item.id,
         status: nextStatus,
       })
-
       loadKitchenData(true)
     } catch (err) {
       showToast('error', `Failed to update item: ${err.message}`)
@@ -167,7 +183,8 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
         notes: `Kitchen bumped order to ${targetStatus}`,
       })
 
-      showToast('success', `Order updated to ${targetStatus}`)
+      const labels = { PREPARING: 'Cooking started', READY: 'Ticket is ready', COMPLETED: 'Moved to Done' }
+      showToast('success', labels[targetStatus] || 'Kitchen updated')
       loadKitchenData(true)
     } catch (err) {
       showToast('error', `Status update failed: ${err.message}`)
@@ -334,20 +351,19 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
           ))}
         </div>
 
-        {/* Status Filters */}
         <div className="flex items-center gap-1.5 self-end sm:self-auto">
           {[
-            { id: 'ACTIVE', label: 'Active Queue' },
-            { id: 'READY', label: 'Ready for Pickup' },
-            { id: 'COMPLETED', label: 'Recently Bumped' },
+            { id: 'ACTIVE', label: 'Kitchen queue', hint: 'New tickets to cook' },
+            { id: 'READY', label: 'Ready to serve' },
+            { id: 'COMPLETED', label: 'Done (last hour)' },
           ].map((flt) => (
             <button
               key={flt.id}
               onClick={() => setStatusFilter(flt.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-[13px] font-semibold transition-all ${
                 statusFilter === flt.id
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 bg-slate-50'
+                  ? 'bg-orange-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 bg-slate-50'
               }`}
             >
               {flt.label}
@@ -369,70 +385,67 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
               <CheckCircle2 className="w-8 h-8 text-emerald-500" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">All Kitchen Orders Cleared!</h3>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                There are no orders in the active queue for {selectedStation === 'ALL' ? 'any station' : 'this station'}.
-                New tickets sent from POS will land here automatically.
+              <h3 className="text-[16px] font-semibold text-slate-900">
+                {statusFilter === 'COMPLETED' ? 'No finished tickets yet' : 'No kitchen tickets'}
+              </h3>
+              <p className="text-[13px] text-slate-500 mt-1 max-w-sm">
+                {statusFilter === 'COMPLETED'
+                  ? 'When you tap Done, finished tickets move here for one hour.'
+                  : 'New POS orders show here as New. Tap Start cooking, then Ready, then Done.'}
               </p>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-6">
             {orders.map((ord) => {
-              // Card border & header styling based on urgency
+              const lane = kitchenLane(ord)
               const isDelayed = ord.delayStatus === 'DELAYED'
-              const isWarning = ord.delayStatus === 'WARNING'
-              const isReady = ord.status === 'READY'
-
-              let cardBorder = 'border-slate-200'
-              let cardGlow = 'shadow-sm'
-              if (isReady) {
-                cardBorder = 'border-emerald-400'
-                cardGlow = 'shadow-sm'
-              } else if (isDelayed) {
-                cardBorder = 'border-rose-400'
-                cardGlow = 'shadow-sm ring-1 ring-rose-200'
-              } else if (isWarning) {
-                cardBorder = 'border-amber-400'
-                cardGlow = 'shadow-sm'
-              }
+              const header =
+                lane === 'ready'
+                  ? 'bg-emerald-50 border-emerald-100'
+                  : lane === 'cooking'
+                    ? 'bg-amber-50 border-amber-100'
+                    : lane === 'done'
+                      ? 'bg-slate-50 border-slate-200'
+                      : 'bg-orange-50 border-orange-100'
+              const border =
+                isDelayed
+                  ? 'border-rose-300'
+                  : lane === 'ready'
+                    ? 'border-emerald-300'
+                    : lane === 'cooking'
+                      ? 'border-amber-300'
+                      : lane === 'done'
+                        ? 'border-slate-200'
+                        : 'border-orange-300'
+              const badge =
+                lane === 'ready'
+                  ? 'bg-emerald-600 text-white'
+                  : lane === 'cooking'
+                    ? 'bg-amber-500 text-white'
+                    : lane === 'done'
+                      ? 'bg-slate-600 text-white'
+                      : 'bg-orange-600 text-white'
 
               return (
                 <div
                   key={ord.id}
-                  className={`bg-white border-2 ${cardBorder} ${cardGlow} rounded-2xl flex flex-col overflow-hidden transition-all duration-200 select-none`}
+                  className={`bg-white border ${border} shadow-sm rounded-2xl flex flex-col overflow-hidden`}
                 >
-                  {/* Card Header */}
-                  <div className={`p-3.5 border-b flex items-start justify-between gap-2 ${
-                    isReady
-                      ? 'bg-emerald-50 border-emerald-100'
-                      : isDelayed
-                      ? 'bg-rose-50 border-rose-100'
-                      : isWarning
-                      ? 'bg-amber-50 border-amber-100'
-                      : 'bg-slate-50 border-slate-200'
-                  }`}>
+                  <div className={`p-3.5 border-b flex items-start justify-between gap-2 ${header}`}>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-black text-white tracking-wider">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[16px] font-extrabold text-slate-900 tracking-tight">
                           {ord.order_number}
                         </span>
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                          ord.order_type === 'DINE_IN'
-                            ? 'bg-blue-950 text-blue-300 border border-blue-800/60'
-                            : ord.order_type === 'TAKEAWAY'
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800/60'
-                            : 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
-                        }`}>
+                        <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600">
                           {ord.order_type.replace('_', ' ')}
                         </span>
                       </div>
-
-                      {/* Location: Table or Customer */}
-                      <div className="text-xs font-bold text-slate-200 mt-1 flex items-center gap-1.5">
+                      <div className="text-[13px] font-medium text-slate-600 mt-1 flex items-center gap-1.5">
                         {ord.table_number ? (
                           <>
-                            <Grid3X3 className="w-3.5 h-3.5 text-orange-400" />
+                            <Grid3X3 className="w-3.5 h-3.5 text-orange-600" />
                             <span>Table {ord.table_number}</span>
                             {ord.floor_name && (
                               <span className="text-slate-400 font-normal">({ord.floor_name})</span>
@@ -440,183 +453,143 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                           </>
                         ) : ord.customer_name ? (
                           <>
-                            <User className="w-3.5 h-3.5 text-purple-400" />
+                            <User className="w-3.5 h-3.5 text-orange-600" />
                             <span>{ord.customer_name}</span>
                           </>
                         ) : (
-                          <span className="text-slate-400">Direct Order</span>
+                          <span className="text-slate-400">Walk-in</span>
                         )}
                       </div>
                     </div>
-
-                    {/* Timer & Status Badge */}
                     <div className="flex flex-col items-end gap-1">
-                      <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black font-mono ${
-                        isReady
-                          ? 'bg-emerald-900/80 text-emerald-200'
-                          : isDelayed
-                          ? 'bg-rose-900/90 text-rose-100 ring-1 ring-rose-400'
-                          : isWarning
-                          ? 'bg-amber-900/80 text-amber-100'
-                          : 'bg-slate-800 text-slate-200'
-                      }`}>
-                        <Clock className="w-3 h-3" />
-                        <span>{ord.elapsedMinutes}m</span>
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-lg text-[13px] font-semibold bg-white border border-slate-200 text-slate-700">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{ord.elapsedMinutes} min</span>
                       </div>
-
-                      <span className={`text-[10px] font-black uppercase px-1.5 py-0.5 rounded ${
-                        isReady
-                          ? 'bg-emerald-500 text-black'
-                          : ord.status === 'PREPARING'
-                          ? 'bg-amber-500 text-black'
-                          : 'bg-slate-700 text-slate-200'
-                      }`}>
-                        {ord.status}
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${badge}`}>
+                        {laneLabel(lane)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Order-level Notes Warning Banner */}
                   {ord.order_notes && (
-                    <div className="bg-amber-500/15 border-b border-amber-500/30 px-3 py-1.5 text-xs font-bold text-amber-200 flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <div className="bg-amber-50 border-b border-amber-100 px-3 py-1.5 text-[13px] font-medium text-amber-800 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">{ord.order_notes}</span>
                     </div>
                   )}
 
-                  {/* Items Checklist Body */}
                   <div className="flex-1 p-3 space-y-2 overflow-y-auto max-h-[360px]">
                     {ord.items?.map((item) => {
-                      const isItemReady = item.kitchen_status === 'READY'
-                      const isItemPrep = item.kitchen_status === 'PREPARING'
-
+                      const step = item.kitchen_status || 'PENDING'
                       return (
                         <div
                           key={item.id}
-                          onClick={() => handleToggleItemStatus(item)}
-                          className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                            isItemReady
-                              ? 'bg-emerald-950/30 border-emerald-800/40 opacity-70'
-                              : isItemPrep
-                              ? 'bg-amber-950/25 border-amber-600/50 hover:border-amber-400'
-                              : 'bg-slate-950/70 border-slate-800 hover:border-slate-700'
+                          className={`p-2.5 rounded-xl border ${
+                            step === 'READY'
+                              ? 'bg-emerald-50 border-emerald-100'
+                              : step === 'PREPARING'
+                                ? 'bg-amber-50 border-amber-100'
+                                : 'bg-slate-50 border-slate-200'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-start gap-2.5">
-                              {/* Touch check box */}
-                              <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                                isItemReady
-                                  ? 'bg-emerald-500 border-emerald-400 text-black'
-                                  : isItemPrep
-                                  ? 'bg-amber-500/20 border-amber-500 text-amber-400'
-                                  : 'border-slate-700 text-transparent hover:border-slate-500'
-                              }`}>
-                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[14px] font-extrabold text-orange-600">{item.quantity}×</span>
+                                <span className={`text-[14px] font-semibold ${step === 'READY' ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                  {item.item_name}
+                                </span>
                               </div>
-
-                              <div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm font-black text-orange-400">
-                                    {item.quantity}x
-                                  </span>
-                                  <span className={`text-sm font-bold leading-tight ${
-                                    isItemReady ? 'line-through text-slate-400' : 'text-white'
-                                  }`}>
-                                    {item.item_name}
-                                  </span>
-                                </div>
-
-                                {/* Station Pill */}
-                                {item.station_name && (
-                                  <div className="mt-1 flex items-center gap-1">
-                                    <span
-                                      className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded text-white"
-                                      style={{ backgroundColor: item.station_color || '#f97316' }}
-                                    >
-                                      {item.station_name}
+                              {item.station_name && (
+                                <span
+                                  className="mt-1 inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded text-white"
+                                  style={{ backgroundColor: item.station_color || '#ea580c' }}
+                                >
+                                  {item.station_name}
+                                </span>
+                              )}
+                              {item.modifiers?.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {item.modifiers.map((mod, mIdx) => (
+                                    <span key={mIdx} className="text-[11px] font-medium bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded">
+                                      +{mod.name}
                                     </span>
-                                  </div>
-                                )}
-
-                                {/* Modifiers */}
-                                {item.modifiers?.length > 0 && (
-                                  <div className="mt-1 flex flex-wrap gap-1">
-                                    {item.modifiers.map((mod, mIdx) => (
-                                      <span
-                                        key={mIdx}
-                                        className="text-[10px] font-semibold bg-slate-800 text-amber-300 border border-slate-700 px-1.5 py-0.5 rounded"
-                                      >
-                                        +{mod.name}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Notes */}
-                                {item.notes && (
-                                  <div className="mt-1 text-[11px] font-bold text-amber-200 bg-amber-950/60 border border-amber-800/40 px-2 py-0.5 rounded">
-                                    Note: {item.notes}
-                                  </div>
-                                )}
-                              </div>
+                                  ))}
+                                </div>
+                              )}
+                              {item.notes && (
+                                <div className="mt-1 text-[12px] font-medium text-amber-800">Note: {item.notes}</div>
+                              )}
                             </div>
-
-                            {/* Item Status Tag */}
-                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                              isItemReady
-                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50'
-                                : isItemPrep
-                                ? 'bg-amber-950 text-amber-300 border border-amber-800/50'
-                                : 'bg-slate-800 text-slate-400'
-                            }`}>
-                              {item.kitchen_status || 'PENDING'}
-                            </span>
                           </div>
+                          {lane !== 'done' && (
+                            <div className="mt-2 grid grid-cols-3 gap-1">
+                              {[
+                                { id: 'PENDING', label: 'New' },
+                                { id: 'PREPARING', label: 'Cooking' },
+                                { id: 'READY', label: 'Ready' },
+                              ].map((btn) => (
+                                <button
+                                  key={btn.id}
+                                  type="button"
+                                  onClick={() => setItemKitchenStatus(item, btn.id)}
+                                  className={`py-1.5 rounded-lg text-[12px] font-bold ${
+                                    step === btn.id
+                                      ? btn.id === 'READY'
+                                        ? 'bg-emerald-600 text-white'
+                                        : btn.id === 'PREPARING'
+                                          ? 'bg-amber-500 text-white'
+                                          : 'bg-orange-600 text-white'
+                                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {btn.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {lane === 'done' && (
+                            <div className="mt-2 text-[12px] font-semibold text-slate-500">{itemStepLabel(step)}</div>
+                          )}
                         </div>
                       )
                     })}
                   </div>
 
-                  {/* Card Action Controls Footer */}
                   <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-1.5">
-                    {/* Thermal KOT Print */}
                     <button
                       onClick={() => setActiveKOTTicket(ord)}
                       className="p-2 rounded-xl bg-white hover:bg-slate-100 text-slate-500 border border-slate-200"
-                      title="Print KOT Ticket"
+                      title="Print ticket"
                     >
                       <Printer className="w-4 h-4" />
                     </button>
-
-                    {/* Step Actions */}
                     <div className="flex items-center gap-1.5 flex-1 justify-end">
-                      {ord.status === 'CONFIRMED' && (
+                      {lane === 'new' && (
                         <button
                           onClick={() => handleUpdateOrderStatus(ord.id, 'PREPARING')}
-                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-bold"
                         >
                           <Flame className="w-3.5 h-3.5" />
-                          <span>Start Cook</span>
+                          Start cooking
                         </button>
                       )}
-
-                      {ord.status !== 'READY' && ord.status !== 'COMPLETED' && (
+                      {lane === 'cooking' && (
                         <button
                           onClick={() => handleUpdateOrderStatus(ord.id, 'READY')}
-                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-bold"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>All Ready</span>
+                          Mark ready
                         </button>
                       )}
-
-                      {(ord.status === 'READY' || statusFilter === 'COMPLETED') && (
+                      {lane === 'ready' && (
                         <button
                           onClick={() => handleUpdateOrderStatus(ord.id, 'COMPLETED')}
-                          className="flex items-center gap-1 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-[13px] font-bold"
                         >
-                          <span>Bump / Served</span>
+                          Done
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       )}

@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 const isWebDeploy = Boolean(process.env.VERCEL || process.env.WEB_ONLY)
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     ...(!isWebDeploy

@@ -91,12 +91,17 @@ export const kitchenRepository = {
 
     let statusCondition = ''
     if (statusFilter === 'ACTIVE') {
-      statusCondition = "o.status IN ('CONFIRMED', 'PREPARING', 'READY')"
+      statusCondition = `(
+        o.status IN ('CONFIRMED', 'PREPARING', 'READY')
+        OR (o.status = 'COMPLETED' AND o.kitchen_completed_at IS NULL)
+      )`
     } else if (statusFilter === 'READY') {
       statusCondition = "o.status = 'READY'"
     } else if (statusFilter === 'COMPLETED') {
-      // Completed in the last 60 minutes
-      statusCondition = "o.status IN ('SERVED', 'COMPLETED') AND datetime(o.updated_at) >= datetime('now', '-60 minutes')"
+      statusCondition = `(
+        o.kitchen_completed_at IS NOT NULL
+        OR o.status = 'SERVED'
+      ) AND datetime(COALESCE(o.kitchen_completed_at, o.updated_at)) >= datetime('now', '-60 minutes')`
     } else if (statusFilter !== 'ALL') {
       statusCondition = `o.status = '${statusFilter}'`
     } else {
@@ -368,7 +373,11 @@ export const kitchenRepository = {
 
     const activeTickets = db.prepare(`
       SELECT COUNT(*) as count FROM orders
-      WHERE branch_id = ? AND status IN ('CONFIRMED', 'PREPARING', 'READY')
+      WHERE branch_id = ?
+        AND (
+          status IN ('CONFIRMED', 'PREPARING', 'READY')
+          OR (status = 'COMPLETED' AND kitchen_completed_at IS NULL)
+        )
     `).get(targetBranchId).count
 
     const preparingTickets = db.prepare(`
