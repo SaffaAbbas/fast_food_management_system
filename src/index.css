@@ -226,23 +226,49 @@ textarea {
   stroke: #ffffff !important;
 }
 
-/* White text on orange / green / red action buttons */
-[class*="bg-orange-600"],
-[class*="bg-orange-600"] *,
-[class*="bg-orange-500"],
-[class*="bg-orange-500"] *,
-[class*="from-orange-600"],
-[class*="from-orange-600"] *,
-[class*="bg-emerald-600"],
-[class*="bg-emerald-600"] *,
-[class*="bg-emerald-500"],
-[class*="bg-emerald-500"] *,
-[class*="from-emerald-600"],
-[class*="from-emerald-600"] *,
-[class*="bg-amber-600"],
-[class*="bg-amber-600"] *,
-[class*="bg-rose-600"],
-[class*="bg-rose-600"] *,
+.pos-add-btn {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+  border: none;
+}
+.pos-add-btn svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* White text on orange / green / red — only real bg-* classes, not hover:/group-hover: */
+[class^="bg-orange-600"],
+[class*=" bg-orange-600"],
+[class^="bg-orange-600"] *,
+[class*=" bg-orange-600"] *,
+[class^="bg-orange-500"],
+[class*=" bg-orange-500"],
+[class^="bg-orange-500"] *,
+[class*=" bg-orange-500"] *,
+[class^="from-orange-600"],
+[class*=" from-orange-600"] *,
+[class^="bg-emerald-600"],
+[class*=" bg-emerald-600"],
+[class^="bg-emerald-600"] *,
+[class*=" bg-emerald-600"] *,
+[class^="bg-emerald-500"],
+[class*=" bg-emerald-500"],
+[class^="bg-emerald-500"] *,
+[class*=" bg-emerald-500"] *,
+[class^="from-emerald-600"],
+[class*=" from-emerald-600"] *,
+[class^="bg-amber-600"],
+[class*=" bg-amber-600"],
+[class^="bg-amber-600"] *,
+[class*=" bg-amber-600"] *,
+[class^="bg-rose-600"],
+[class*=" bg-rose-600"],
+[class^="bg-rose-600"] *,
+[class*=" bg-rose-600"] *,
+[class*="hover:bg-orange-600"]:hover,
+[class*="hover:bg-orange-600"]:hover *,
+[class*="hover:bg-emerald-600"]:hover,
+[class*="hover:bg-emerald-600"]:hover *,
 [class*="hover:bg-rose-600"]:hover,
 [class*="hover:bg-rose-600"]:hover * {
   color: #ffffff !important;

@@ -638,8 +638,8 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                           )}
                         </div>
 
-                        <div className="w-7 h-7 rounded-xl bg-slate-900 group-hover:bg-orange-600 text-slate-400 group-hover:text-white flex items-center justify-center transition-all border border-slate-800 group-hover:border-orange-500 shadow-sm">
-                          <Plus className="w-3.5 h-3.5" />
+                        <div className="pos-add-btn w-8 h-8 rounded-full flex items-center justify-center shadow-sm">
+                          <Plus className="w-4 h-4" strokeWidth={2.5} />
                         </div>
                       </div>
                     </div>
