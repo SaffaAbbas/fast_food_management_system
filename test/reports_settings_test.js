@@ -127,8 +127,35 @@ async function runTests() {
     console.log(`✓ Updated tax_rate_percentage: ${updatedTax}%`)
     if (updatedTax !== '7.5') throw new Error('Expected tax rate 7.5.')
 
+    console.log('\n--- Test 8: Sales filters (order type / cashier) ---')
+    const filtered = reportsRepository.getSalesSummary(branch.id, { orderType: 'DINE_IN', cashierId: adminUser.id })
+    if (filtered.overall.total_orders === 0) throw new Error('Filtered dine-in cashier sales should include the sample order.')
+    console.log(`✓ Filtered sales orders: ${filtered.overall.total_orders}`)
+
+    console.log('\n--- Test 9: Food cost, cashier, purchases, branch comparison ---')
+    const food = reportsRepository.getFoodCostReport(branch.id)
+    console.log(`✓ Food cost rows: ${food.items.length}`)
+    const cashier = reportsRepository.getCashierReport(branch.id)
+    console.log(`✓ Cashier report rows: ${cashier.cashiers.length}`)
+    if (cashier.cashiers.length === 0) throw new Error('Expected cashier totals for the sample order.')
+    const purchases = reportsRepository.getPurchaseReport(branch.id)
+    console.log(`✓ Purchase report rows: ${purchases.items.length}`)
+    const vendors = reportsRepository.getVendorStatementReport(branch.id)
+    console.log(`✓ Vendor statement rows: ${vendors.vendors.length}`)
+    const branches = reportsRepository.getBranchComparison({})
+    if (!branches.rows.length) throw new Error('Expected at least one branch in comparison.')
+    console.log(`✓ Branch comparison: ${branches.rows.length} branch(es)`)
+    const staff = reportsRepository.getStaffSales(branch.id)
+    if (!staff.sales) throw new Error('Staff report should include sales and attendance.')
+    console.log(`✓ Staff sales rows: ${staff.sales.length}`)
+
+    settingsRepository.set('order_number_prefix', 'FB', 'WORKFLOW')
+    settingsRepository.set('ui_theme', 'forest', 'APPEARANCE')
+    if (settingsRepository.get('order_number_prefix') !== 'FB') throw new Error('order prefix not saved')
+    console.log('✓ Workflow/theme settings persist')
+
     // ------------------------------------------------------------------
-    console.log('\n--- Test 8: System Audit Logs ---')
+    console.log('\n--- Test 10: System Audit Logs ---')
     const auditLogs = reportsRepository.getAuditLogs(branch.id, 10)
     console.log(`✓ Audit Logs: Retrieved ${auditLogs.length} audit entries`)
 

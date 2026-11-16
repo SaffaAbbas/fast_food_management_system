@@ -28,18 +28,25 @@ import KitchenTicketModal from './KitchenTicketModal.jsx'
  * Web Audio API synthesizer for kitchen chime (zero external dependencies)
  */
 function kitchenLane(order) {
-  if (order.kitchen_completed_at || order.status === 'SERVED') return 'done'
+  if (order.kitchen_completed_at || order.status === 'SERVED' || order.status === 'COMPLETED') return 'done'
   if (order.status === 'READY' || order.isAllItemsReady) return 'ready'
   if (order.status === 'PREPARING') return 'cooking'
   const items = order.items || []
   if (items.some((item) => item.kitchen_status === 'PREPARING' || item.kitchen_status === 'READY')) {
     return 'cooking'
   }
+  if (order.kitchen_accepted_at) return 'accepted'
   return 'new'
 }
 
 function laneLabel(lane) {
-  return { new: 'New order', cooking: 'Cooking', ready: 'Ready', done: 'Done' }[lane] || 'New order'
+  return {
+    new: 'New',
+    accepted: 'Accepted',
+    cooking: 'Preparing',
+    ready: 'Ready',
+    done: 'Served',
+  }[lane] || 'New'
 }
 
 function itemStepLabel(status) {
@@ -391,7 +398,7 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
               <p className="text-[13px] text-slate-500 mt-1 max-w-sm">
                 {statusFilter === 'COMPLETED'
                   ? 'When you tap Done, finished tickets move here for one hour.'
-                  : 'New POS orders show here as New. Tap Start cooking, then Ready, then Done.'}
+                  : 'New POS orders show as New. Accept, start cooking, mark Ready, then Done/Served.'}
               </p>
             </div>
           </div>
@@ -405,6 +412,8 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                   ? 'bg-emerald-50 border-emerald-100'
                   : lane === 'cooking'
                     ? 'bg-amber-50 border-amber-100'
+                    : lane === 'accepted'
+                      ? 'bg-sky-50 border-sky-100'
                     : lane === 'done'
                       ? 'bg-slate-50 border-slate-200'
                       : 'bg-orange-50 border-orange-100'
@@ -415,6 +424,8 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                     ? 'border-emerald-300'
                     : lane === 'cooking'
                       ? 'border-amber-300'
+                      : lane === 'accepted'
+                        ? 'border-sky-300'
                       : lane === 'done'
                         ? 'border-slate-200'
                         : 'border-orange-300'
@@ -423,6 +434,8 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                   ? 'bg-emerald-600 text-white'
                   : lane === 'cooking'
                     ? 'bg-amber-500 text-white'
+                    : lane === 'accepted'
+                      ? 'bg-sky-600 text-white'
                     : lane === 'done'
                       ? 'bg-slate-600 text-white'
                       : 'bg-orange-600 text-white'
@@ -464,7 +477,7 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                     <div className="flex flex-col items-end gap-1">
                       <div className="flex items-center gap-1 px-2 py-1 rounded-lg text-[13px] font-semibold bg-white border border-slate-200 text-slate-700">
                         <Clock className="w-3.5 h-3.5" />
-                        <span>{ord.elapsedMinutes} min</span>
+                        <span>{ord.elapsedMinutes} / {ord.delayThreshold || ord.target_prep_minutes || 15} min</span>
                       </div>
                       <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${badge}`}>
                         {laneLabel(lane)}
@@ -567,6 +580,22 @@ export default function KitchenDisplayView({ currentUser, onBack }) {
                     </button>
                     <div className="flex items-center gap-1.5 flex-1 justify-end">
                       {lane === 'new' && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await window.api.kitchen.acceptOrder({ orderId: ord.id })
+                              showToast('success', 'Ticket accepted')
+                              loadKitchenData(true)
+                            } catch (err) {
+                              showToast('error', err.message)
+                            }
+                          }}
+                          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-[13px] font-bold"
+                        >
+                          Accept
+                        </button>
+                      )}
+                      {(lane === 'new' || lane === 'accepted') && (
                         <button
                           onClick={() => handleUpdateOrderStatus(ord.id, 'PREPARING')}
                           className="flex items-center gap-1 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[13px] font-bold"

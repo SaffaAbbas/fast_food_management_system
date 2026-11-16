@@ -1,13 +1,13 @@
-import { net } from 'electron'
+import { net, powerMonitor } from 'electron'
 import { WebSocket } from 'ws'
 import { createClient } from '@supabase/supabase-js'
 import { getDb } from '../db/index.js'
-import { queueLocalSnapshot } from '../db/outbox.js'
+import { queueLocalSnapshot, setOutboxFlushHook } from '../db/outbox.js'
 
 if (typeof globalThis.WebSocket !== 'function') {
   globalThis.WebSocket = WebSocket
 }
-import { getSyncConfig, setMeta, countOutbox, getDeviceId } from './config.js'
+import { getSyncConfig, setMeta, countOutbox, getDeviceId, ensureCloudSyncReady } from './config.js'
 import { buildEntityPayload } from './payloads.js'
 import { applyRemoteRecord } from './applyRemote.js'
 
@@ -17,7 +17,9 @@ const MAX_RETRY = 8
 
 let mainWindow = null
 let timer = null
+let soonTimer = null
 let running = false
+let hooksBound = false
 let lastStatus = {
   online: false,
   enabled: false,
@@ -79,60 +81,71 @@ function markOutbox(id, status, errorMessage = null) {
 
 async function pushOutbox(client, cfg) {
   const db = getDb()
-  const rows = db.prepare(`
-    SELECT * FROM sync_outbox
-    WHERE status IN ('PENDING', 'FAILED') AND retry_count < ?
-    ORDER BY created_at ASC
-    LIMIT ?
-  `).all(MAX_RETRY, BATCH)
+  for (;;) {
+    const rows = db.prepare(`
+      SELECT * FROM sync_outbox
+      WHERE status IN ('PENDING', 'FAILED') AND retry_count < ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(MAX_RETRY, BATCH)
+    if (!rows.length) break
 
-  for (const row of rows) {
-    const live = buildEntityPayload(row.entity_type, row.entity_id)
-    let payload
-    try {
-      payload = live || JSON.parse(row.payload_json || '{}')
-    } catch {
-      payload = { raw: row.payload_json }
-    }
+    let progressed = false
+    for (const row of rows) {
+      const live = buildEntityPayload(row.entity_type, row.entity_id)
+      let payload
+      try {
+        payload = live || JSON.parse(row.payload_json || '{}')
+      } catch {
+        payload = { raw: row.payload_json }
+      }
 
-    const record = {
-      id: `${row.entity_type}:${row.entity_id}`,
-      entity_type: row.entity_type,
-      entity_id: row.entity_id,
-      operation: row.operation,
-      payload,
-      device_id: cfg.deviceId,
-      updated_at: new Date().toISOString(),
-    }
+      const record = {
+        id: `${row.entity_type}:${row.entity_id}`,
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        operation: row.operation,
+        payload,
+        device_id: cfg.deviceId,
+        updated_at: new Date().toISOString(),
+      }
 
-    const { error } = await client.from(TABLE).upsert(record, { onConflict: 'id' })
-    if (error) {
-      const nextStatus = row.retry_count + 1 >= MAX_RETRY ? 'FAILED' : 'PENDING'
-      markOutbox(row.id, nextStatus, error.message)
-    } else {
-      markOutbox(row.id, 'SYNCED')
+      const { error } = await client.from(TABLE).upsert(record, { onConflict: 'id' })
+      if (error) {
+        const nextStatus = row.retry_count + 1 >= MAX_RETRY ? 'FAILED' : 'PENDING'
+        markOutbox(row.id, nextStatus, error.message)
+      } else {
+        markOutbox(row.id, 'SYNCED')
+        progressed = true
+      }
     }
+    if (!progressed) break
   }
 }
 
 async function pullRemote(client, cfg) {
-  const since = cfg.lastPullAt || '1970-01-01T00:00:00.000Z'
-  const { data, error } = await client
-    .from(TABLE)
-    .select('*')
-    .gt('updated_at', since)
-    .neq('device_id', cfg.deviceId)
-    .order('updated_at', { ascending: true })
-    .limit(200)
+  let since = cfg.lastPullAt || '1970-01-01T00:00:00.000Z'
+  const newestStart = since
+  for (;;) {
+    const { data, error } = await client
+      .from(TABLE)
+      .select('*')
+      .gt('updated_at', since)
+      .neq('device_id', cfg.deviceId)
+      .order('updated_at', { ascending: true })
+      .limit(200)
 
-  if (error) throw new Error(error.message)
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
 
-  let newest = since
-  for (const record of data || []) {
-    applyRemoteRecord(record)
-    if (record.updated_at > newest) newest = record.updated_at
+    for (const record of data) {
+      applyRemoteRecord(record)
+      if (record.updated_at > since) since = record.updated_at
+    }
+    setMeta('last_pull_at', since)
+    if (data.length < 200) break
   }
-  if (newest !== since) setMeta('last_pull_at', newest)
+  return since !== newestStart
 }
 
 export function getSyncStatus() {
@@ -162,7 +175,7 @@ export async function runSyncCycle({ retryFailed = false } = {}) {
     }
 
     if (!online) {
-      lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting to sync.`
+      lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting. Will sync when internet returns.`
       emit()
       return lastStatus
     }
@@ -184,8 +197,8 @@ export async function runSyncCycle({ retryFailed = false } = {}) {
     lastStatus.lastSyncedAt = syncedAt
     lastStatus.lastError = null
     lastStatus.message = lastStatus.pending
-      ? `Online. ${lastStatus.pending} still queued.`
-      : 'Online and synced with Supabase.'
+      ? `Online. ${lastStatus.pending} still queued — retrying.`
+      : 'Online. Local SQLite is synced with Supabase.'
   } catch (err) {
     const message = err.message || 'Sync failed'
     setMeta('last_error', message)
@@ -199,16 +212,48 @@ export async function runSyncCycle({ retryFailed = false } = {}) {
   return lastStatus
 }
 
+export function scheduleSyncSoon() {
+  if (soonTimer) clearTimeout(soonTimer)
+  soonTimer = setTimeout(() => {
+    soonTimer = null
+    runSyncCycle().catch((err) => console.warn('[Sync]', err.message))
+  }, 1200)
+}
+
+export function setNetworkHint(online) {
+  lastStatus.online = Boolean(online)
+  if (!online) {
+    refreshCounts(getSyncConfig())
+    lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting. Will sync when internet returns.`
+    emit()
+    return lastStatus
+  }
+  return runSyncCycle({ retryFailed: true })
+}
+
 export function startSyncScheduler(win) {
   mainWindow = win
+  ensureCloudSyncReady()
+  setOutboxFlushHook(scheduleSyncSoon)
   if (timer) clearInterval(timer)
   timer = setInterval(() => {
     runSyncCycle().catch((err) => console.warn('[Sync]', err.message))
-  }, 20000)
+  }, 15000)
+  if (!hooksBound) {
+    hooksBound = true
+    powerMonitor.on('resume', () => {
+      runSyncCycle({ retryFailed: true }).catch((err) => console.warn('[Sync]', err.message))
+    })
+    powerMonitor.on('unlock-screen', () => {
+      runSyncCycle().catch((err) => console.warn('[Sync]', err.message))
+    })
+  }
   runSyncCycle().catch((err) => console.warn('[Sync]', err.message))
 }
 
 export function stopSyncScheduler() {
   if (timer) clearInterval(timer)
   timer = null
+  if (soonTimer) clearTimeout(soonTimer)
+  soonTimer = null
 }

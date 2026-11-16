@@ -191,7 +191,7 @@ export default function LoginScreen({ onLoginSuccess }) {
             {loading ? 'Creating restaurant...' : 'Create account and continue'}
           </button>
           <p className="text-[13px] text-slate-500 flex items-center gap-1.5">
-            <Store className="w-4 h-4" /> Extra staff can be added later from Staff.
+            <Store className="w-4 h-4" /> Extra staff are added later from Staff → Users (pick a role, PIN, optional password). There is no public sign-up.
           </p>
         </form>
       </div>
@@ -266,6 +266,7 @@ export default function LoginScreen({ onLoginSuccess }) {
               </h3>
               <p className="text-[13px] text-slate-500 mt-0.5">
                 {selectedUser?.displayName || selectedUser?.display_name || 'Select a staff profile'}
+                {selectedUser?.roleName || selectedUser?.role_name ? ` · ${selectedUser.roleName || selectedUser.role_name}` : ''}
               </p>
             </div>
             <div className="flex bg-slate-100 p-1 rounded-xl text-[13px]">

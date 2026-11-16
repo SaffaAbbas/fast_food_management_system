@@ -13,6 +13,16 @@
   --line: #e5e7eb;
 }
 
+html[data-theme='forest'] {
+  --brand: #15803d;
+  --brand-strong: #166534;
+}
+
+html[data-theme='navy'] {
+  --brand: #1d4ed8;
+  --brand-strong: #1e40af;
+}
+
 html,
 body,
 #root {
@@ -296,4 +306,19 @@ textarea:focus {
   outline: none;
   border-color: #fb923c !important;
   box-shadow: 0 0 0 3px rgb(251 146 60 / 0.18);
+}
+
+@media print {
+  body * { visibility: hidden !important; }
+  #printable-receipt, #printable-receipt * { visibility: visible !important; }
+  #printable-receipt {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
 }

@@ -32,6 +32,7 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "auth:needs-setup",
   "auth:complete-setup",
   "dashboard:get-metrics",
+  "dashboard:list-branches",
   "db:get-settings",
   "db:get-categories",
   "db:get-products",
@@ -73,6 +74,7 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "table:update-table",
   "table:archive-table",
   "table:merge-tables",
+  "table:split-bill",
   // Customer CRM & Loyalty (Phase 9)
   "customer:get-customers",
   "customer:get-details",
@@ -80,6 +82,7 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "customer:update",
   "customer:adjust-loyalty",
   "customer:get-summary",
+  "customer:merge",
   // Table Reservations (Phase 9)
   "reservation:get-reservations",
   "reservation:create",
@@ -90,10 +93,12 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "coupon:create",
   "coupon:update",
   "coupon:validate",
+  "coupon:evaluate-auto",
   // Kitchen Display System (Phase 6)
   "kitchen:get-orders",
   "kitchen:update-item-status",
   "kitchen:update-order-status",
+  "kitchen:accept-order",
   "kitchen:get-stations",
   "kitchen:create-station",
   "kitchen:update-station",
@@ -107,10 +112,15 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "inventory:update-item",
   "inventory:adjust-stock",
   "inventory:get-movements",
+  "inventory:transfer-stock",
+  "inventory:get-alerts",
+  "inventory:get-branches",
   // Recipes & Food Cost (Phase 7)
   "recipe:get-recipes",
   "recipe:get-recipe",
   "recipe:save-recipe",
+  "recipe:set-active",
+  "recipe:get-versions",
   // Suppliers & Purchases (Phase 7)
   "supplier:get-suppliers",
   "supplier:create",
@@ -118,10 +128,15 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "purchase:get-orders",
   "purchase:create-order",
   "purchase:record-payment",
+  "purchase:receive-order",
+  "purchase:return-items",
+  "purchase:vendor-statement",
   // Expenses (Phase 7)
   "expense:get-categories",
   "expense:get-expenses",
   "expense:create",
+  "expense:approve",
+  "expense:cancel",
   "expense:get-summary",
   // Cash Drawer & Shift Management (Phase 8)
   "cash:get-current-session",
@@ -137,6 +152,7 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "staff:create-employee",
   "staff:update-employee",
   "staff:clock-in",
+  "staff:mark-attendance",
   "staff:clock-out",
   "staff:get-attendance-logs",
   "staff:get-shifts",
@@ -181,6 +197,12 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "reports:get-expense-report",
   "reports:get-reservation-report",
   "reports:get-refund-report",
+  "reports:get-food-cost",
+  "reports:get-purchase-report",
+  "reports:get-vendor-statement",
+  "reports:get-cashier-report",
+  "reports:get-branch-comparison",
+  "reports:get-lookups",
   "media:save",
   "media:get-data-url",
   // System Settings (Phase 11)
@@ -190,7 +212,9 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   "sync:get-status",
   "sync:get-config",
   "sync:save-config",
-  "sync:run-now"
+  "sync:run-now",
+  "sync:notify-network",
+  "pos:record-print"
 ]);
 const ALLOWED_SEND_CHANNELS = /* @__PURE__ */ new Set([
   IPC_CHANNELS.WINDOW_MINIMIZE,
@@ -228,7 +252,8 @@ const api = {
   },
   // Dashboard API
   dashboard: {
-    getMetrics: (params = {}) => electron.ipcRenderer.invoke("dashboard:get-metrics", params)
+    getMetrics: (params = {}) => electron.ipcRenderer.invoke("dashboard:get-metrics", params),
+    listBranches: () => electron.ipcRenderer.invoke("dashboard:list-branches")
   },
   // Product & Menu Catalog API (Phase 4)
   product: {
@@ -257,7 +282,8 @@ const api = {
     getHeldOrders: (branchId) => electron.ipcRenderer.invoke("pos:get-held-orders", branchId),
     cancelOrder: (data) => electron.ipcRenderer.invoke("pos:cancel-order", data),
     refundOrder: (data) => electron.ipcRenderer.invoke("pos:refund-order", data),
-    getOrders: (params = {}) => electron.ipcRenderer.invoke("pos:get-orders", params)
+    getOrders: (params = {}) => electron.ipcRenderer.invoke("pos:get-orders", params),
+    recordPrint: (data) => electron.ipcRenderer.invoke("pos:record-print", data)
   },
   // Table & Floor Management API (Phase 5)
   tables: {
@@ -269,7 +295,8 @@ const api = {
     createTable: (data) => electron.ipcRenderer.invoke("table:create-table", data),
     updateTable: (data) => electron.ipcRenderer.invoke("table:update-table", data),
     archiveTable: (id) => electron.ipcRenderer.invoke("table:archive-table", id),
-    mergeTables: (data) => electron.ipcRenderer.invoke("table:merge-tables", data)
+    mergeTables: (data) => electron.ipcRenderer.invoke("table:merge-tables", data),
+    splitBill: (data) => electron.ipcRenderer.invoke("table:split-bill", data)
   },
   // Customer Management API (Phase 5 & 8)
   customers: {
@@ -283,6 +310,7 @@ const api = {
     getOrders: (params = {}) => electron.ipcRenderer.invoke("kitchen:get-orders", params),
     updateItemStatus: (data) => electron.ipcRenderer.invoke("kitchen:update-item-status", data),
     updateOrderStatus: (data) => electron.ipcRenderer.invoke("kitchen:update-order-status", data),
+    acceptOrder: (data) => electron.ipcRenderer.invoke("kitchen:accept-order", data),
     getStations: (branchId) => electron.ipcRenderer.invoke("kitchen:get-stations", branchId),
     createStation: (data) => electron.ipcRenderer.invoke("kitchen:create-station", data),
     updateStation: (id, data) => electron.ipcRenderer.invoke("kitchen:update-station", { id, data }),
@@ -297,13 +325,18 @@ const api = {
     createItem: (data) => electron.ipcRenderer.invoke("inventory:create-item", data),
     updateItem: (id, data) => electron.ipcRenderer.invoke("inventory:update-item", { id, data }),
     adjustStock: (data) => electron.ipcRenderer.invoke("inventory:adjust-stock", data),
-    getMovements: (params = {}) => electron.ipcRenderer.invoke("inventory:get-movements", params)
+    getMovements: (params = {}) => electron.ipcRenderer.invoke("inventory:get-movements", params),
+    transferStock: (data) => electron.ipcRenderer.invoke("inventory:transfer-stock", data),
+    getAlerts: (params = {}) => electron.ipcRenderer.invoke("inventory:get-alerts", params),
+    getBranches: () => electron.ipcRenderer.invoke("inventory:get-branches")
   },
   // Recipes & Food Cost API (Phase 7)
   recipes: {
     getRecipes: (params = {}) => electron.ipcRenderer.invoke("recipe:get-recipes", params),
     getRecipe: (params) => electron.ipcRenderer.invoke("recipe:get-recipe", params),
-    saveRecipe: (data) => electron.ipcRenderer.invoke("recipe:save-recipe", data)
+    saveRecipe: (data) => electron.ipcRenderer.invoke("recipe:save-recipe", data),
+    setActive: (id, isActive) => electron.ipcRenderer.invoke("recipe:set-active", { id, isActive }),
+    getVersions: (recipeId) => electron.ipcRenderer.invoke("recipe:get-versions", recipeId)
   },
   // Suppliers & Purchases API (Phase 7)
   purchases: {
@@ -312,13 +345,19 @@ const api = {
     updateSupplier: (id, data) => electron.ipcRenderer.invoke("supplier:update", { id, data }),
     getOrders: (params = {}) => electron.ipcRenderer.invoke("purchase:get-orders", params),
     createOrder: (data) => electron.ipcRenderer.invoke("purchase:create-order", data),
-    recordPayment: (data) => electron.ipcRenderer.invoke("purchase:record-payment", data)
+    recordPayment: (data) => electron.ipcRenderer.invoke("purchase:record-payment", data),
+    receiveOrder: (data) => electron.ipcRenderer.invoke("purchase:receive-order", data),
+    returnItems: (data) => electron.ipcRenderer.invoke("purchase:return-items", data),
+    getVendorStatement: (params) => electron.ipcRenderer.invoke("purchase:vendor-statement", params)
   },
   // Expense Management API (Phase 7)
   expenses: {
     getCategories: () => electron.ipcRenderer.invoke("expense:get-categories"),
     getExpenses: (params = {}) => electron.ipcRenderer.invoke("expense:get-expenses", params),
     createExpense: (data) => electron.ipcRenderer.invoke("expense:create", data),
+    create: (data) => electron.ipcRenderer.invoke("expense:create", data),
+    approve: (id) => electron.ipcRenderer.invoke("expense:approve", id),
+    cancel: (data) => electron.ipcRenderer.invoke("expense:cancel", data),
     getSummary: (params = {}) => electron.ipcRenderer.invoke("expense:get-summary", params)
   },
   // Cash Drawer & Shift API (Phase 8)
@@ -338,6 +377,7 @@ const api = {
     createEmployee: (data) => electron.ipcRenderer.invoke("staff:create-employee", data),
     updateEmployee: (id, data) => electron.ipcRenderer.invoke("staff:update-employee", { id, data }),
     clockIn: (data) => electron.ipcRenderer.invoke("staff:clock-in", data),
+    markAttendance: (data) => electron.ipcRenderer.invoke("staff:mark-attendance", data),
     clockOut: (data) => electron.ipcRenderer.invoke("staff:clock-out", data),
     getAttendanceLogs: (params = {}) => electron.ipcRenderer.invoke("staff:get-attendance-logs", params),
     getShifts: (branchId) => electron.ipcRenderer.invoke("staff:get-shifts", branchId),
@@ -355,7 +395,8 @@ const api = {
     create: (data) => electron.ipcRenderer.invoke("customer:create", data),
     update: (id, data) => electron.ipcRenderer.invoke("customer:update", { id, data }),
     adjustLoyalty: (data) => electron.ipcRenderer.invoke("customer:adjust-loyalty", data),
-    getSummary: (branchId) => electron.ipcRenderer.invoke("customer:get-summary", branchId)
+    getSummary: (branchId) => electron.ipcRenderer.invoke("customer:get-summary", branchId),
+    merge: (data) => electron.ipcRenderer.invoke("customer:merge", data)
   },
   // Reservations API (Phase 9)
   reservations: {
@@ -369,7 +410,8 @@ const api = {
     getCoupons: (branchId) => electron.ipcRenderer.invoke("coupon:get-coupons", branchId),
     create: (data) => electron.ipcRenderer.invoke("coupon:create", data),
     update: (id, data) => electron.ipcRenderer.invoke("coupon:update", { id, data }),
-    validate: (data) => electron.ipcRenderer.invoke("coupon:validate", data)
+    validate: (data) => electron.ipcRenderer.invoke("coupon:validate", data),
+    evaluateAuto: (data) => electron.ipcRenderer.invoke("coupon:evaluate-auto", data)
   },
   // Delivery & Dispatch API (Phase 10)
   delivery: {
@@ -408,7 +450,13 @@ const api = {
     getInventoryReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-inventory-report", params),
     getExpenseReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-expense-report", params),
     getReservationReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-reservation-report", params),
-    getRefundReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-refund-report", params)
+    getRefundReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-refund-report", params),
+    getFoodCost: (params = {}) => electron.ipcRenderer.invoke("reports:get-food-cost", params),
+    getPurchaseReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-purchase-report", params),
+    getVendorStatement: (params = {}) => electron.ipcRenderer.invoke("reports:get-vendor-statement", params),
+    getCashierReport: (params = {}) => electron.ipcRenderer.invoke("reports:get-cashier-report", params),
+    getBranchComparison: (params = {}) => electron.ipcRenderer.invoke("reports:get-branch-comparison", params),
+    getLookups: () => electron.ipcRenderer.invoke("reports:get-lookups")
   },
   media: {
     save: (payload) => electron.ipcRenderer.invoke("media:save", payload),
@@ -418,7 +466,8 @@ const api = {
     getStatus: () => electron.ipcRenderer.invoke("sync:get-status"),
     getConfig: () => electron.ipcRenderer.invoke("sync:get-config"),
     saveConfig: (payload) => electron.ipcRenderer.invoke("sync:save-config", payload),
-    runNow: () => electron.ipcRenderer.invoke("sync:run-now")
+    runNow: () => electron.ipcRenderer.invoke("sync:run-now"),
+    notifyNetwork: (online) => electron.ipcRenderer.invoke("sync:notify-network", online)
   },
   // Settings API (Phase 11)
   settings: {

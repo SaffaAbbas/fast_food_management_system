@@ -34,6 +34,8 @@ export default function RecipeManagerView({ onBack }) {
   const [recipeNotes, setRecipeNotes] = useState('')
   const [recipeIngredients, setRecipeIngredients] = useState([]) // Array of { inventoryItemId, quantityRequired, wastagePercentage }
   const [recipeImageUrl, setRecipeImageUrl] = useState(null)
+  const [versionRecipe, setVersionRecipe] = useState(null)
+  const [recipeVersions, setRecipeVersions] = useState([])
 
   // Toast
   const [toast, setToast] = useState(null)
@@ -48,7 +50,7 @@ export default function RecipeManagerView({ onBack }) {
     try {
       if (window.api?.recipes) {
         const [recipesRes, productsRes, rawItemsRes] = await Promise.all([
-          window.api.recipes.getRecipes(),
+          window.api.recipes.getRecipes({ includeInactive: true }),
           window.api.product?.getProducts ? window.api.product.getProducts({ includeInactive: false }) : [],
           window.api.inventory?.getItems ? window.api.inventory.getItems() : [],
         ])
@@ -154,17 +156,40 @@ export default function RecipeManagerView({ onBack }) {
     }
   }
 
+  const handleToggleRecipe = async (rec) => {
+    try {
+      await window.api.recipes.setActive(rec.id, rec.is_active === 0)
+      showToast('success', rec.is_active === 0 ? 'Recipe activated' : 'Recipe deactivated (history kept)')
+      loadData()
+    } catch (err) {
+      showToast('error', err.message)
+    }
+  }
+
+  const handleOpenVersions = async (rec) => {
+    setVersionRecipe(rec)
+    try {
+      const rows = await window.api.recipes.getVersions(rec.id)
+      setRecipeVersions(rows || [])
+    } catch (err) {
+      showToast('error', `Could not load version history: ${err.message}`)
+    }
+  }
+
   // Calculate live editor food cost
   const selectedProd = products.find((p) => p.id === selectedProductId)
   const currentSellingPriceCents = selectedProd?.base_price_cents || 0
 
-  const editorFoodCostCents = recipeIngredients.reduce((sum, ing) => {
+  const editorBatchCostCents = recipeIngredients.reduce((sum, ing) => {
     const raw = rawItems.find((r) => r.id === ing.inventoryItemId)
     if (!raw) return sum
     const qty = parseFloat(ing.quantityRequired || 0)
     const waste = 1 + parseFloat(ing.wastagePercentage || 0) / 100
-    return sum + Math.round(qty * waste * (raw.cost_per_unit_cents || 0))
+    const unitCost = raw.avg_cost_cents != null ? raw.avg_cost_cents : (raw.cost_per_unit_cents || 0)
+    return sum + Math.round(qty * waste * unitCost)
   }, 0)
+  const editorYield = Math.max(0.0001, parseFloat(yieldQuantity || 1))
+  const editorFoodCostCents = Math.round(editorBatchCostCents / editorYield)
 
   const editorGrossProfitCents = Math.max(0, currentSellingPriceCents - editorFoodCostCents)
   const editorFoodCostPct = currentSellingPriceCents > 0
@@ -273,7 +298,9 @@ export default function RecipeManagerView({ onBack }) {
               return (
                 <div
                   key={rec.id}
-                  className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg hover:border-slate-700 transition-all"
+                  className={`bg-slate-900 border rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg hover:border-slate-700 transition-all ${
+                    rec.is_active === 0 ? 'border-slate-700 opacity-70' : 'border-slate-800'
+                  }`}
                 >
                   {/* Card Header */}
                   <div>
@@ -343,17 +370,32 @@ export default function RecipeManagerView({ onBack }) {
                   </div>
 
                   {/* Actions Footer */}
-                  <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs">
+                  <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs gap-2">
                     <span className="text-[10px] text-slate-500">
-                      Yield: {rec.yield_quantity || 1.0} serving
+                      Yield: {rec.yield_quantity || 1.0} · v{rec.version || 1}
+                      {rec.is_active === 0 ? ' · Inactive' : ''}
                     </span>
-                    <button
-                      onClick={() => handleOpenEditRecipe(rec)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
-                    >
-                      <Edit className="w-3.5 h-3.5" />
-                      <span>Edit Recipe</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleOpenVersions(rec)}
+                        className="px-2 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-semibold border border-slate-700"
+                      >
+                        History
+                      </button>
+                      <button
+                        onClick={() => handleToggleRecipe(rec)}
+                        className="px-2 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-semibold border border-slate-700"
+                      >
+                        {rec.is_active === 0 ? 'Activate' : 'Deactivate'}
+                      </button>
+                      <button
+                        onClick={() => handleOpenEditRecipe(rec)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )
@@ -555,6 +597,34 @@ export default function RecipeManagerView({ onBack }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {versionRecipe && (
+        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border-l border-slate-700 w-full max-w-lg h-full p-6 flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-white">Recipe versions</h2>
+                <p className="text-xs text-slate-400">{versionRecipe.product_name}</p>
+              </div>
+              <button onClick={() => setVersionRecipe(null)} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pt-3">
+              {recipeVersions.length === 0 ? (
+                <p className="text-xs text-slate-500 py-8 text-center">No previous versions yet. Save an edit to create a snapshot.</p>
+              ) : recipeVersions.map((v) => (
+                <div key={v.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
+                  <div className="flex justify-between text-slate-300">
+                    <span className="font-bold">Version {v.version}</span>
+                    <span className="font-mono text-slate-500">{new Date(v.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="text-amber-300 font-mono">Food cost ${( (v.food_cost_cents || 0) / 100).toFixed(2)} / serving</div>
+                  <div className="text-slate-500">Yield {v.yield_quantity || 1} · {v.notes || 'No notes'}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

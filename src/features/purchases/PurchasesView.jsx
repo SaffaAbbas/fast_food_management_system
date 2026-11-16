@@ -40,13 +40,15 @@ export default function PurchasesView({ onBack }) {
     phone: '',
     email: '',
     address: '',
+    taxId: '',
+    paymentTerms: '',
   })
 
   const [poFormData, setPoFormData] = useState({
     supplierId: '',
     poNumber: '',
     notes: '',
-    autoReceive: true,
+    autoReceive: false,
     items: [],
   })
 
@@ -107,11 +109,13 @@ export default function PurchasesView({ onBack }) {
         phone: supplierFormData.phone.trim(),
         email: supplierFormData.email.trim(),
         address: supplierFormData.address.trim(),
+        taxId: supplierFormData.taxId.trim(),
+        paymentTerms: supplierFormData.paymentTerms.trim(),
       })
 
       showToast('success', `Supplier "${supplierFormData.companyName}" added!`)
       setIsAddSupplierModalOpen(false)
-      setSupplierFormData({ companyName: '', contactName: '', phone: '', email: '', address: '' })
+      setSupplierFormData({ companyName: '', contactName: '', phone: '', email: '', address: '', taxId: '', paymentTerms: '' })
       loadData()
     } catch (err) {
       showToast('error', `Failed to create supplier: ${err.message}`)
@@ -124,7 +128,7 @@ export default function PurchasesView({ onBack }) {
       supplierId: suppliers[0]?.id || '',
       poNumber: `PO-${Date.now().toString().slice(-6)}`,
       notes: '',
-      autoReceive: true,
+      autoReceive: false,
       items: [
         {
           inventoryItemId: rawItems[0]?.id || '',
@@ -358,13 +362,14 @@ export default function PurchasesView({ onBack }) {
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Items Summary</th>
                   <th className="py-3 px-4 text-right">Total Amount</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
                 {purchaseOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500">
-                      No purchase orders recorded yet. Click "Create Purchase / GRN" to record fresh inventory intake.
+                    <td colSpan={7} className="py-12 text-center text-slate-500">
+                      No purchase orders recorded yet. Create a PO first; stock increases only when you post GRN.
                     </td>
                   </tr>
                 ) : (
@@ -393,6 +398,50 @@ export default function PurchasesView({ onBack }) {
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400 text-sm">
                         ${(po.total_cents / 100).toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-1">
+                        {po.status !== 'RECEIVED' && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await window.api.purchases.receiveOrder({ poId: po.id })
+                                showToast('success', `GRN posted for ${po.po_number}`)
+                                loadData()
+                              } catch (err) {
+                                showToast('error', err.message)
+                              }
+                            }}
+                            className="px-2 py-1 rounded-lg bg-emerald-700 text-white text-[10px] font-bold"
+                          >
+                            Receive
+                          </button>
+                        )}
+                        {(po.status === 'RECEIVED' || po.status === 'PARTIAL') && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const first = po.items?.[0]
+                              if (!first) return
+                              const qty = parseFloat(window.prompt(`Return qty for ${first.item_name}`, '1') || '0')
+                              if (!qty) return
+                              try {
+                                await window.api.purchases.returnItems({
+                                  poId: po.id,
+                                  reason: 'Purchase return',
+                                  items: [{ inventoryItemId: first.inventory_item_id, quantity: qty }],
+                                })
+                                showToast('success', `Return posted for ${po.po_number}`)
+                                loadData()
+                              } catch (err) {
+                                showToast('error', err.message)
+                              }
+                            }}
+                            className="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 text-[10px] font-bold"
+                          >
+                            Return
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -536,6 +585,27 @@ export default function PurchasesView({ onBack }) {
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Tax / reference</label>
+                  <input
+                    type="text"
+                    value={supplierFormData.taxId}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, taxId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Payment terms</label>
+                  <input
+                    type="text"
+                    placeholder="Net 15 / COD"
+                    value={supplierFormData.paymentTerms}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, paymentTerms: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
@@ -606,7 +676,7 @@ export default function PurchasesView({ onBack }) {
                 <div>
                   <div className="text-xs font-bold text-emerald-200">Goods Received Note (GRN) Intake</div>
                   <div className="text-[10px] text-slate-400">
-                    Automatically add item quantities directly into current stock ledger
+                    Tick only when goods are physically received. Stock is not increased on a PO until GRN is posted.
                   </div>
                 </div>
                 <input

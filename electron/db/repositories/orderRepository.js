@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { authRepository } from './authRepository.js'
 import { inventoryRepository } from './inventoryRepository.js'
 import { customerRepository } from './customerRepository.js'
+import { couponRepository } from './couponRepository.js'
 import { enqueueOutbox } from '../outbox.js'
 
 function uuid() {
@@ -61,11 +62,159 @@ function logAudit(branchId, action, entityType, entityId, details) {
 }
 
 export const orderRepository = {
+  replaceOpenOrder: (orderData) => {
+    const db = getDb()
+    const existing = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderData.id)
+    if (!existing) throw new Error('Order not found.')
+    if ((existing.paid_cents || 0) > 0) {
+      throw new Error('Paid orders cannot be rewritten from POS. Use refund or a new ticket.')
+    }
+    if (!['DRAFT', 'CONFIRMED'].includes(existing.status)) {
+      throw new Error('Only held or unconfirmed tickets can be edited.')
+    }
+
+    const now = new Date().toISOString()
+    const status = orderData.status || existing.status
+    const orderType = orderData.orderType || existing.order_type
+    const cashierId = resolveValidUserId(db, orderData.cashierId)
+
+    const rewriteTx = db.transaction(() => {
+      if (existing.stock_posted !== 1) {
+        inventoryRepository.releaseReservedStockForOrder(existing.id)
+      }
+      const itemIds = db.prepare('SELECT id FROM order_items WHERE order_id = ?').all(existing.id)
+      for (const row of itemIds) {
+        db.prepare('DELETE FROM order_item_modifiers WHERE order_item_id = ?').run(row.id)
+      }
+      db.prepare('DELETE FROM order_items WHERE order_id = ?').run(existing.id)
+
+      db.prepare(`
+        UPDATE orders SET
+          order_type = ?, status = ?, table_id = ?, customer_id = ?,
+          subtotal_cents = ?, discount_cents = ?, discount_reason = ?,
+          tax_cents = ?, service_charge_cents = ?, delivery_charge_cents = ?,
+          total_cents = ?, notes = ?, kitchen_accepted_at = ?,
+          coupon_id = ?, coupon_code = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        orderType,
+        status,
+        orderData.tableId || null,
+        orderData.customerId || null,
+        orderData.subtotalCents || 0,
+        orderData.discountCents || 0,
+        orderData.discountReason || null,
+        orderData.taxCents || 0,
+        orderData.serviceChargeCents || 0,
+        orderData.deliveryChargeCents || 0,
+        orderData.totalCents || 0,
+        orderData.notes || null,
+        status === 'CONFIRMED' ? (existing.kitchen_accepted_at || now) : null,
+        orderData.couponId || existing.coupon_id || null,
+        orderData.couponCode || existing.coupon_code || null,
+        now,
+        existing.id
+      )
+
+      if (Array.isArray(orderData.items)) {
+        for (const item of orderData.items) {
+          const itemId = uuid()
+          db.prepare(`
+            INSERT INTO order_items (
+              id, order_id, product_id, variation_id, item_name,
+              quantity, unit_price_cents, discount_cents, total_cents,
+              kitchen_status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+          `).run(
+            itemId,
+            existing.id,
+            item.productId,
+            item.variationId || null,
+            item.name || item.itemName || 'Menu Item',
+            item.quantity,
+            item.unitPriceCents,
+            item.discountCents || 0,
+            item.totalCents,
+            item.notes || null
+          )
+          if (Array.isArray(item.modifiers)) {
+            for (const mod of item.modifiers) {
+              db.prepare(`
+                INSERT INTO order_item_modifiers (id, order_item_id, modifier_id, name, price_cents)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(uuid(), itemId, mod.id || null, mod.name, (mod.priceCents || 0) * (mod.quantity || 1))
+            }
+          }
+        }
+      }
+
+      if (existing.status !== status) {
+        db.prepare(`
+          INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(uuid(), existing.id, existing.status, status, cashierId, 'POS ticket updated', now)
+      }
+
+      if (orderType === 'DINE_IN' && orderData.tableId) {
+        db.prepare('UPDATE dining_tables SET status = ?, current_order_id = ?, updated_at = ? WHERE id = ?')
+          .run('OCCUPIED', existing.id, now, orderData.tableId)
+      }
+
+      logAudit(existing.branch_id, 'UPDATE_ORDER', 'ORDER', existing.id, {
+        orderNumber: existing.order_number,
+        status,
+      })
+      if ((orderData.discountCents || 0) > 0) {
+        logAudit(existing.branch_id, 'DISCOUNT_OVERRIDE', 'ORDER', existing.id, {
+          orderNumber: existing.order_number,
+          discountCents: orderData.discountCents,
+          reason: orderData.discountReason || null,
+          couponCode: orderData.couponCode || null,
+        })
+      }
+
+      if (status === 'CONFIRMED' && existing.stock_posted !== 1) {
+        inventoryRepository.reserveRecipeStockForOrder(existing.id)
+      }
+
+      couponRepository.recordRedemption({
+        couponId: orderData.couponId || existing.coupon_id,
+        couponCode: orderData.couponCode || existing.coupon_code,
+        orderId: existing.id,
+        customerId: orderData.customerId || existing.customer_id,
+        discountCents: orderData.discountCents || existing.discount_cents || 0,
+        status,
+      })
+    })
+
+    rewriteTx()
+    const created = orderRepository.getOrderDetails(existing.id)
+    return { ...created, orderNumber: created.order_number, totalCents: created.total_cents }
+  },
+
   createOrder: (orderData) => {
+    if (orderData.id) {
+      return orderRepository.replaceOpenOrder(orderData)
+    }
     const db = getDb()
     const now = new Date().toISOString()
-    const orderId = orderData.id || uuid()
-    const orderNumber = orderData.orderNumber || `ORD-${Date.now().toString().slice(-6)}`
+    const orderId = uuid()
+    const orderNumber = orderData.orderNumber || (() => {
+      const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      let prefixKey = 'ORD'
+      try {
+        const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'order_number_prefix'").get()
+        if (row?.setting_value) prefixKey = String(row.setting_value).replace(/[^A-Za-z0-9]/g, '').slice(0, 8) || 'ORD'
+      } catch (e) {}
+      const prefix = `${prefixKey}-${day}-`
+      const last = db.prepare('SELECT order_number FROM orders WHERE order_number LIKE ? ORDER BY order_number DESC LIMIT 1').get(`${prefix}%`)
+      let seq = 1
+      if (last?.order_number) {
+        const n = parseInt(String(last.order_number).slice(prefix.length), 10)
+        if (!Number.isNaN(n)) seq = n + 1
+      }
+      return `${prefix}${String(seq).padStart(4, '0')}`
+    })()
     const status = orderData.status || 'CONFIRMED'
     const orderType = orderData.orderType || 'DINE_IN'
 
@@ -77,14 +226,14 @@ export const orderRepository = {
       db.prepare(`
         INSERT INTO orders (
           id, branch_id, order_number, order_type, order_source, status,
-          table_id, customer_id, cashier_id, subtotal_cents, discount_cents,
+          table_id, customer_id, reservation_id, cashier_id, subtotal_cents, discount_cents,
           discount_reason, tax_cents, service_charge_cents, delivery_charge_cents,
-          total_cents, paid_cents, notes, kitchen_accepted_at, created_at, updated_at
+          total_cents, paid_cents, notes, kitchen_accepted_at, coupon_id, coupon_code, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?
         )
       `).run(
         orderId,
@@ -95,6 +244,7 @@ export const orderRepository = {
         status,
         orderData.tableId || null,
         orderData.customerId || null,
+        orderData.reservationId || null,
         cashierId,
         orderData.subtotalCents || 0,
         orderData.discountCents || 0,
@@ -106,6 +256,8 @@ export const orderRepository = {
         orderData.paidCents || 0,
         orderData.notes || null,
         status === 'CONFIRMED' ? now : null,
+        orderData.couponId || null,
+        orderData.couponCode || null,
         now,
         now
       )
@@ -180,6 +332,31 @@ export const orderRepository = {
         totalCents: orderData.totalCents,
         status,
       })
+      if ((orderData.discountCents || 0) > 0) {
+        logAudit(orderData.branchId, 'DISCOUNT_OVERRIDE', 'ORDER', orderId, {
+          orderNumber,
+          discountCents: orderData.discountCents,
+          reason: orderData.discountReason || null,
+          couponCode: orderData.couponCode || null,
+        })
+      }
+
+      if (status === 'CONFIRMED') {
+        inventoryRepository.reserveRecipeStockForOrder(orderId)
+      }
+
+      couponRepository.recordRedemption({
+        couponId: orderData.couponId,
+        couponCode: orderData.couponCode,
+        orderId,
+        customerId: orderData.customerId,
+        discountCents: orderData.discountCents || 0,
+        status,
+      })
+      if (orderData.reservationId) {
+        db.prepare("UPDATE reservations SET status = 'SEATED', updated_at = ? WHERE id = ?")
+          .run(now, orderData.reservationId)
+      }
 
       const created = orderRepository.getOrderDetails(orderId)
       return {
@@ -283,8 +460,24 @@ export const orderRepository = {
         totalPaymentCents += p.amountCents || 0
       }
 
+      const remainingDue = Math.max(0, (order.total_cents || 0) - (order.paid_cents || 0))
+      if (!Array.isArray(payments) || payments.length === 0) {
+        throw new Error('At least one payment method is required.')
+      }
       if (totalPaymentCents <= 0) {
         throw new Error('Payment amount must be greater than zero.')
+      }
+      if (totalPaymentCents < remainingDue) {
+        throw new Error(`Payment is short. Remaining due is $${(remainingDue / 100).toFixed(2)}.`)
+      }
+      for (const p of payments) {
+        const method = String(p.paymentMethod || '').toUpperCase()
+        if (!p.amountCents || p.amountCents <= 0) {
+          throw new Error('Each payment line must have an amount greater than zero.')
+        }
+        if (method !== 'CASH' && !String(p.referenceNumber || '').trim()) {
+          throw new Error(`Reference / auth number is required for ${method.replace('_', ' ')} payments.`)
+        }
       }
 
       // Record each payment tender (split tender support)
@@ -345,17 +538,19 @@ export const orderRepository = {
           SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ?
           WHERE id = ?
         `).run(now, order.table_id)
+        if (order.reservation_id) {
+          db.prepare("UPDATE reservations SET status = 'COMPLETED', updated_at = ? WHERE id = ?")
+            .run(now, order.reservation_id)
+        }
       }
 
       if (isFullyPaid) {
-        try {
-          inventoryRepository.deductRecipeStockForOrder(orderId)
-        } catch (e) {
-          console.warn('Recipe inventory auto-deduction failed:', e)
-        }
+        inventoryRepository.deductRecipeStockForOrder(orderId)
 
         if (order.customer_id && order.loyalty_awarded !== 1) {
-          const points = Math.max(0, Math.floor((order.total_cents || 0) / 100))
+          const earnRow = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'loyalty_earn_per_dollar'").get()
+          const earnRate = Math.max(0, parseFloat(earnRow?.setting_value || '1') || 1)
+          const points = Math.max(0, Math.floor(((order.total_cents || 0) / 100) * earnRate))
           if (points > 0) {
             customerRepository.adjustLoyaltyPoints({
               customerId: order.customer_id,
@@ -445,6 +640,8 @@ export const orderRepository = {
 
       if (order.stock_posted === 1) {
         inventoryRepository.reverseRecipeStockForOrder(orderId, `Void restock: ${reason.trim()}`)
+      } else {
+        inventoryRepository.releaseReservedStockForOrder(orderId)
       }
 
       logAudit(order.branch_id, 'CANCEL_ORDER', 'ORDER', orderId, {
@@ -503,7 +700,7 @@ export const orderRepository = {
     return orderRepository.getOrders({ branchId, limit })
   },
 
-  refundOrder: ({ orderId, amountCents, reason, restock = true, cashierId = null }) => {
+  refundOrder: ({ orderId, amountCents, reason, restock = true, cashierId = null, refundMethod = null, items = [] }) => {
     const db = getDb()
     const now = new Date().toISOString()
 
@@ -525,9 +722,14 @@ export const orderRepository = {
       const validCashierId = resolveValidUserId(db, cashierId)
       const refundId = uuid()
 
+      const originalPay = db.prepare(`
+        SELECT payment_method FROM payments WHERE order_id = ? AND status = 'COMPLETED' ORDER BY created_at DESC LIMIT 1
+      `).get(orderId)
+      const method = String(refundMethod || originalPay?.payment_method || 'CASH').toUpperCase()
+
       db.prepare(`
-        INSERT INTO refunds (id, branch_id, order_id, payment_id, cashier_id, amount_cents, reason, restock, created_at)
-        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+        INSERT INTO refunds (id, branch_id, order_id, payment_id, cashier_id, amount_cents, reason, restock, created_at, refund_method)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
       `).run(
         refundId,
         order.branch_id,
@@ -536,8 +738,19 @@ export const orderRepository = {
         amount,
         String(reason).trim(),
         restock ? 1 : 0,
-        now
+        now,
+        method
       )
+
+      if (Array.isArray(items)) {
+        for (const line of items) {
+          if (!line.orderItemId || !line.quantity) continue
+          db.prepare(`
+            INSERT INTO refund_items (id, refund_id, order_item_id, quantity, amount_cents, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(uuid(), refundId, line.orderItemId, parseFloat(line.quantity), parseInt(line.amountCents || 0, 10), line.reason || reason)
+        }
+      }
 
       const newRefunded = alreadyRefunded + amount
       const fullyRefunded = newRefunded >= (order.paid_cents || 0)
@@ -567,7 +780,7 @@ export const orderRepository = {
         WHERE branch_id = ? AND status = 'OPEN'
         ORDER BY opened_at DESC LIMIT 1
       `).get(order.branch_id)
-      if (openSession) {
+      if (openSession && method === 'CASH') {
         db.prepare(`
           UPDATE cash_sessions
           SET total_refunds_cents = COALESCE(total_refunds_cents, 0) + ?

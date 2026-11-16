@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, app, net, shell } from "electron";
+import { ipcMain, dialog, BrowserWindow, app, powerMonitor, net, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -1062,7 +1062,7 @@ const migration010 = {
     `).run(now);
   }
 };
-function addColumn$1(db, table, column, definition) {
+function addColumn$2(db, table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -1071,6 +1071,29 @@ function addColumn$1(db, table, column, definition) {
 const migration011 = {
   version: 11,
   name: "media_image_columns",
+  up: (db) => {
+    addColumn$2(db, "products", "image_url", "TEXT");
+    addColumn$2(db, "categories", "image_url", "TEXT");
+    addColumn$2(db, "combos", "image_url", "TEXT");
+    addColumn$2(db, "customers", "image_url", "TEXT");
+    addColumn$2(db, "employees", "image_url", "TEXT");
+    addColumn$2(db, "users", "image_url", "TEXT");
+    addColumn$2(db, "recipes", "image_url", "TEXT");
+    addColumn$2(db, "riders", "image_url", "TEXT");
+    addColumn$2(db, "inventory_items", "image_url", "TEXT");
+    addColumn$2(db, "branches", "logo_url", "TEXT");
+    addColumn$2(db, "roles", "image_url", "TEXT");
+  }
+};
+function addColumn$1(db, table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+const migration012 = {
+  version: 12,
+  name: "roles_and_media_columns_guard",
   up: (db) => {
     addColumn$1(db, "products", "image_url", "TEXT");
     addColumn$1(db, "categories", "image_url", "TEXT");
@@ -1085,27 +1108,573 @@ const migration011 = {
     addColumn$1(db, "roles", "image_url", "TEXT");
   }
 };
+const ROLE_DEFS = [
+  { code: "super_admin", name: "Super Administrator", desc: "All branches, all modules, system configuration" },
+  { code: "branch_admin", name: "Branch Admin / Owner", desc: "Full branch management, reports, inventory, staff" },
+  { code: "manager", name: "Manager", desc: "Orders, tables, inventory, staff, reports, expenses" },
+  { code: "cashier", name: "Cashier", desc: "POS, orders, payments, customer lookup" },
+  { code: "waiter", name: "Waiter", desc: "Tables, dine-in orders, customer lookup" },
+  { code: "kitchen_staff", name: "Kitchen Staff", desc: "Kitchen display and preparation statuses" },
+  { code: "inventory_officer", name: "Inventory Officer", desc: "Inventory, purchases, vendors, stock adjustments" },
+  { code: "accountant", name: "Accountant", desc: "Expenses, payments, settlements, financial reports" },
+  { code: "delivery_rider", name: "Delivery Rider", desc: "Assigned deliveries and delivery status" },
+  { code: "receptionist", name: "Reception / Reservation", desc: "Reservations, customers, tables" }
+];
+const PERMISSION_DEFS = [
+  { code: "dashboard:view", name: "View dashboard", module: "DASHBOARD" },
+  { code: "pos:create_order", name: "Create and send orders", module: "POS" },
+  { code: "pos:process_payment", name: "Take payments", module: "POS" },
+  { code: "pos:apply_discount", name: "Apply discounts", module: "POS" },
+  { code: "pos:process_refund", name: "Process refunds", module: "POS" },
+  { code: "pos:print_receipt", name: "Print and reprint receipts", module: "POS" },
+  { code: "pos:void_order", name: "Cancel / void orders", module: "POS" },
+  { code: "pos:void_prepared", name: "Cancel orders after kitchen has started", module: "POS" },
+  { code: "menu:manage", name: "Manage menu and recipes", module: "MENU" },
+  { code: "inventory:manage", name: "Manage inventory and purchases", module: "INVENTORY" },
+  { code: "inventory:adjust", name: "Adjust stock quantities", module: "INVENTORY" },
+  { code: "reports:view", name: "View reports", module: "REPORTS" },
+  { code: "audit:view", name: "View security audit log", module: "SECURITY" },
+  { code: "staff:manage", name: "Manage staff login accounts", module: "STAFF" },
+  { code: "users:delete", name: "Delete user accounts", module: "STAFF" },
+  { code: "settings:manage", name: "Global / system configuration", module: "SETTINGS" },
+  { code: "settings:branch", name: "Branch tax, charges, receipt settings", module: "SETTINGS" },
+  { code: "kitchen:view", name: "Kitchen display", module: "KITCHEN" },
+  { code: "reservations:manage", name: "Manage reservations", module: "RESERVATIONS" },
+  { code: "delivery:manage", name: "Manage delivery dispatch", module: "DELIVERY" },
+  { code: "delivery:assigned", name: "Update assigned deliveries", module: "DELIVERY" },
+  { code: "expenses:manage", name: "Manage expenses", module: "EXPENSES" },
+  { code: "cash:manage", name: "Cash drawer and settlements", module: "CASH" },
+  { code: "customers:view", name: "Look up customers", module: "CRM" },
+  { code: "customers:manage", name: "Create and edit customers", module: "CRM" },
+  { code: "tables:view", name: "View and seat tables", module: "TABLES" },
+  { code: "tables:manage", name: "Manage table layout", module: "TABLES" }
+];
+const BRANCH_OPS = [
+  "dashboard:view",
+  "pos:create_order",
+  "pos:process_payment",
+  "pos:apply_discount",
+  "pos:process_refund",
+  "pos:print_receipt",
+  "pos:void_order",
+  "pos:void_prepared",
+  "menu:manage",
+  "inventory:manage",
+  "inventory:adjust",
+  "reports:view",
+  "audit:view",
+  "staff:manage",
+  "kitchen:view",
+  "reservations:manage",
+  "delivery:manage",
+  "delivery:assigned",
+  "expenses:manage",
+  "cash:manage",
+  "customers:view",
+  "customers:manage",
+  "tables:view",
+  "tables:manage",
+  "settings:branch"
+];
+const ROLE_PERMISSIONS = {
+  super_admin: ["*"],
+  branch_admin: BRANCH_OPS,
+  manager: BRANCH_OPS.filter((code) => code !== "settings:branch" && code !== "users:delete"),
+  cashier: [
+    "dashboard:view",
+    "pos:create_order",
+    "pos:process_payment",
+    "pos:print_receipt",
+    "pos:void_order",
+    "customers:view",
+    "tables:view",
+    "cash:manage"
+  ],
+  waiter: [
+    "pos:create_order",
+    "pos:print_receipt",
+    "tables:view",
+    "customers:view"
+  ],
+  kitchen_staff: ["kitchen:view"],
+  inventory_officer: [
+    "dashboard:view",
+    "inventory:manage",
+    "inventory:adjust"
+  ],
+  accountant: [
+    "dashboard:view",
+    "reports:view",
+    "audit:view",
+    "expenses:manage",
+    "cash:manage"
+  ],
+  delivery_rider: ["delivery:assigned"],
+  receptionist: [
+    "dashboard:view",
+    "reservations:manage",
+    "customers:view",
+    "customers:manage",
+    "tables:view",
+    "tables:manage"
+  ]
+};
+function applyRoleMatrix(db) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const roleIds = {};
+  for (const role of ROLE_DEFS) {
+    let row = db.prepare("SELECT id FROM roles WHERE code = ?").get(role.code);
+    if (!row) {
+      const id = crypto$1.randomUUID();
+      db.prepare(`
+        INSERT INTO roles (id, code, name, description, is_system, created_at)
+        VALUES (?, ?, ?, ?, 1, ?)
+      `).run(id, role.code, role.name, role.desc, now);
+      roleIds[role.code] = id;
+    } else {
+      db.prepare("UPDATE roles SET name = ?, description = ? WHERE id = ?").run(role.name, role.desc, row.id);
+      roleIds[role.code] = row.id;
+    }
+  }
+  const permIds = {};
+  for (const perm of PERMISSION_DEFS) {
+    let row = db.prepare("SELECT id FROM permissions WHERE code = ?").get(perm.code);
+    if (!row) {
+      const id = crypto$1.randomUUID();
+      db.prepare(`
+        INSERT INTO permissions (id, code, name, module, description)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, perm.code, perm.name, perm.module, perm.name);
+      permIds[perm.code] = id;
+    } else {
+      permIds[perm.code] = row.id;
+    }
+  }
+  const systemRoleIds = Object.values(roleIds);
+  if (systemRoleIds.length) {
+    db.prepare(`
+      DELETE FROM role_permissions
+      WHERE role_id IN (${systemRoleIds.map(() => "?").join(",")})
+    `).run(...systemRoleIds);
+  }
+  const insert = db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)");
+  for (const [roleCode, codes] of Object.entries(ROLE_PERMISSIONS)) {
+    const roleId = roleIds[roleCode];
+    if (!roleId) continue;
+    const list = codes.includes("*") ? PERMISSION_DEFS.map((p) => p.code) : codes;
+    for (const code of list) {
+      const permId = permIds[code];
+      if (permId) insert.run(roleId, permId);
+    }
+  }
+  return { roleIds, permIds };
+}
 function addColumn(db, table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
-const migration012 = {
-  version: 12,
-  name: "roles_and_media_columns_guard",
+const migration013 = {
+  version: 13,
+  name: "role_permission_matrix",
   up: (db) => {
-    addColumn(db, "products", "image_url", "TEXT");
-    addColumn(db, "categories", "image_url", "TEXT");
-    addColumn(db, "combos", "image_url", "TEXT");
-    addColumn(db, "customers", "image_url", "TEXT");
-    addColumn(db, "employees", "image_url", "TEXT");
-    addColumn(db, "users", "image_url", "TEXT");
-    addColumn(db, "recipes", "image_url", "TEXT");
-    addColumn(db, "riders", "image_url", "TEXT");
-    addColumn(db, "inventory_items", "image_url", "TEXT");
-    addColumn(db, "branches", "logo_url", "TEXT");
-    addColumn(db, "roles", "image_url", "TEXT");
+    addColumn(db, "riders", "user_id", "TEXT");
+    applyRoleMatrix(db);
+  }
+};
+const migration014 = {
+  version: 14,
+  name: "combo_choices_and_table_states",
+  up: (db) => {
+    try {
+      db.exec("ALTER TABLE combo_items ADD COLUMN choice_group TEXT;");
+    } catch (e) {
+    }
+  }
+};
+const migration015 = {
+  version: 15,
+  name: "kds_crm_delivery_ops",
+  up: (db) => {
+    try {
+      db.exec("ALTER TABLE customers ADD COLUMN discount_percent REAL DEFAULT 0;");
+    } catch (e) {
+    }
+    try {
+      db.exec("ALTER TABLE coupons ADD COLUMN customer_id TEXT;");
+    } catch (e) {
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_notifications (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT NOT NULL REFERENCES customers(id),
+        order_id TEXT,
+        channel TEXT DEFAULT 'IN_APP',
+        message TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const seeds = [
+      ["kds_delay_minutes", "15", "KITCHEN"],
+      ["loyalty_earn_per_dollar", "1", "LOYALTY"],
+      ["loyalty_redeem_min", "50", "LOYALTY"],
+      ["loyalty_cents_per_point", "1", "LOYALTY"],
+      ["notify_customer_on_status", "1", "CRM"],
+      ["auto_print_kds", "0", "KITCHEN"]
+    ];
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO system_settings (setting_key, setting_value, category, updated_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const [key, value, category] of seeds) {
+      insert.run(key, value, category, now);
+    }
+  }
+};
+const migration016 = {
+  version: 16,
+  name: "inventory_recipe_ops",
+  up: (db) => {
+    const itemCols = [
+      ["opening_stock", "REAL DEFAULT 0"],
+      ["reorder_level", "REAL"],
+      ["reserved_stock", "REAL DEFAULT 0"],
+      ["avg_cost_cents", "INTEGER"],
+      ["conversion_factor", "REAL"],
+      ["conversion_unit_id", "TEXT"]
+    ];
+    for (const [name, def] of itemCols) {
+      try {
+        db.exec(`ALTER TABLE inventory_items ADD COLUMN ${name} ${def};`);
+      } catch (e) {
+      }
+    }
+    try {
+      db.exec("ALTER TABLE recipes ADD COLUMN is_active INTEGER DEFAULT 1;");
+    } catch (e) {
+    }
+    try {
+      db.exec("ALTER TABLE recipes ADD COLUMN version INTEGER DEFAULT 1;");
+    } catch (e) {
+    }
+    try {
+      db.exec("ALTER TABLE recipes ADD COLUMN deactivated_at TEXT;");
+    } catch (e) {
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS recipe_versions (
+        id TEXT PRIMARY KEY,
+        recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        product_id TEXT,
+        yield_quantity REAL,
+        notes TEXT,
+        ingredients_json TEXT NOT NULL,
+        food_cost_cents INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS inventory_unit_conversions (
+        id TEXT PRIMARY KEY,
+        from_unit_id TEXT NOT NULL REFERENCES inventory_units(id),
+        to_unit_id TEXT NOT NULL REFERENCES inventory_units(id),
+        factor REAL NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    const extraUnits = [
+      ["Millilitre", "ml"],
+      ["Pack", "pack"],
+      ["Box", "box"]
+    ];
+    const insertUnit = db.prepare(
+      "INSERT INTO inventory_units (id, name, abbreviation) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM inventory_units WHERE abbreviation = ?)"
+    );
+    for (const [name, abbr] of extraUnits) {
+      insertUnit.run(`unit-${abbr}`, name, abbr, abbr);
+    }
+    try {
+      db.exec(`
+        UPDATE inventory_items
+        SET avg_cost_cents = COALESCE(avg_cost_cents, cost_per_unit_cents),
+            opening_stock = COALESCE(opening_stock, current_stock),
+            reorder_level = COALESCE(reorder_level, minimum_level)
+      `);
+    } catch (e) {
+    }
+    try {
+      db.prepare(`
+        INSERT INTO system_settings (setting_key, setting_value, category, description, updated_at)
+        SELECT 'recipe_auto_deduct', '1', 'inventory', 'Deduct recipe ingredients when an order is paid', ?
+        WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE setting_key = 'recipe_auto_deduct')
+      `).run((/* @__PURE__ */ new Date()).toISOString());
+    } catch (e) {
+    }
+  }
+};
+const migration017 = {
+  version: 17,
+  name: "ops_finance_reservations",
+  up: (db) => {
+    const add = (table, col, def) => {
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      } catch (e) {
+      }
+    };
+    add("suppliers", "tax_id", "TEXT");
+    add("suppliers", "payment_terms", "TEXT");
+    add("purchase_order_items", "discount_cents", "INTEGER DEFAULT 0");
+    add("purchase_order_items", "tax_cents", "INTEGER DEFAULT 0");
+    add("purchase_order_items", "received_quantity", "REAL DEFAULT 0");
+    add("expenses", "status", "TEXT DEFAULT 'APPROVED'");
+    add("expenses", "reference_number", "TEXT");
+    add("expenses", "attachment_url", "TEXT");
+    add("expenses", "is_recurring", "INTEGER DEFAULT 0");
+    add("expenses", "recurrence", "TEXT");
+    add("expenses", "approved_by_user_id", "TEXT");
+    add("expenses", "cancelled_at", "TEXT");
+    add("expenses", "cancel_reason", "TEXT");
+    add("orders", "reservation_id", "TEXT");
+    add("refunds", "refund_method", "TEXT");
+    add("employees", "commission_percent", "REAL DEFAULT 0");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS purchase_returns (
+        id TEXT PRIMARY KEY,
+        branch_id TEXT NOT NULL,
+        supplier_id TEXT,
+        po_id TEXT,
+        amount_cents INTEGER DEFAULT 0,
+        reason TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS purchase_return_items (
+        id TEXT PRIMARY KEY,
+        return_id TEXT NOT NULL REFERENCES purchase_returns(id) ON DELETE CASCADE,
+        inventory_item_id TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit_cost_cents INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS refund_items (
+        id TEXT PRIMARY KEY,
+        refund_id TEXT NOT NULL REFERENCES refunds(id) ON DELETE CASCADE,
+        order_item_id TEXT,
+        quantity REAL NOT NULL,
+        amount_cents INTEGER DEFAULT 0,
+        reason TEXT
+      );
+    `);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const settings = [
+      ["expense_approval_threshold_cents", "50000", "expenses", "Expenses at or above this amount need approval"],
+      ["cash_variance_approval_cents", "0", "cash", "Absolute variance above this requires manager approval"],
+      ["credit_billing_enabled", "0", "pos", "Allow unpaid/credit billing"],
+      ["refund_restock_default", "1", "inventory", "Default restock on refund"]
+    ];
+    const insertSetting = db.prepare(`
+      INSERT INTO system_settings (setting_key, setting_value, category, description, updated_at)
+      SELECT ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE setting_key = ?)
+    `);
+    for (const [k, v, cat, desc] of settings) {
+      insertSetting.run(k, v, cat, desc, now, k);
+    }
+    try {
+      db.exec(`
+        UPDATE purchase_order_items
+        SET received_quantity = quantity
+        WHERE received_quantity IS NULL OR received_quantity = 0
+      `);
+      db.exec(`
+        UPDATE purchase_order_items
+        SET received_quantity = 0
+        WHERE po_id IN (SELECT id FROM purchase_orders WHERE status = 'ORDERED')
+      `);
+    } catch (e) {
+    }
+  }
+};
+const migration018 = {
+  version: 18,
+  name: "promotions_ops",
+  up: (db) => {
+    const add = (table, col, def) => {
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      } catch (e) {
+      }
+    };
+    add("coupons", "applies_to", "TEXT DEFAULT 'ALL'");
+    add("coupons", "target_id", "TEXT");
+    add("coupons", "buy_qty", "INTEGER DEFAULT 0");
+    add("coupons", "get_qty", "INTEGER DEFAULT 0");
+    add("coupons", "get_product_id", "TEXT");
+    add("coupons", "start_time", "TEXT");
+    add("coupons", "end_time", "TEXT");
+    add("coupons", "days_of_week", "TEXT");
+    add("coupons", "customer_segment", "TEXT DEFAULT 'ALL'");
+    add("coupons", "is_auto_apply", "INTEGER DEFAULT 0");
+    add("coupons", "per_customer_limit", "INTEGER DEFAULT 0");
+    add("orders", "coupon_id", "TEXT");
+    add("orders", "coupon_code", "TEXT");
+    add("combos", "available_from_time", "TEXT");
+    add("combos", "available_to_time", "TEXT");
+    try {
+      applyRoleMatrix(db);
+    } catch (e) {
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS coupon_redemptions (
+        id TEXT PRIMARY KEY,
+        coupon_id TEXT NOT NULL,
+        order_id TEXT,
+        customer_id TEXT,
+        discount_cents INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_coupon ON coupon_redemptions(coupon_id);
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_order ON coupon_redemptions(order_id);
+      CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_customer ON coupon_redemptions(customer_id);
+    `);
+    const branch = db.prepare("SELECT id FROM branches LIMIT 1").get();
+    if (!(branch == null ? void 0 : branch.id)) return;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const exists = (code) => db.prepare("SELECT id FROM coupons WHERE code = ?").get(code);
+    const insert = db.prepare(`
+      INSERT INTO coupons (
+        id, branch_id, code, title, discount_type, discount_value,
+        min_order_cents, max_discount_cents, start_date, end_date,
+        usage_limit, times_used, is_active, customer_id, applies_to, target_id,
+        buy_qty, get_qty, get_product_id, start_time, end_time, days_of_week,
+        customer_segment, is_auto_apply, per_customer_limit, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, 0, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    if (!exists("HAPPYHOUR")) {
+      insert.run(
+        crypto$1.randomUUID(),
+        branch.id,
+        "HAPPYHOUR",
+        "Happy Hour 15% (4–7pm)",
+        "PERCENTAGE",
+        15,
+        0,
+        1500,
+        "ALL",
+        null,
+        0,
+        0,
+        null,
+        "16:00",
+        "19:00",
+        "0,1,2,3,4,5,6",
+        "ALL",
+        1,
+        0,
+        now,
+        now
+      );
+    }
+    const product = db.prepare("SELECT id FROM products WHERE is_active = 1 LIMIT 1").get();
+    if ((product == null ? void 0 : product.id) && !exists("BUY2GET1")) {
+      insert.run(
+        crypto$1.randomUUID(),
+        branch.id,
+        "BUY2GET1",
+        "Buy 2 Get 1 Free",
+        "BOGO",
+        0,
+        0,
+        null,
+        "PRODUCT",
+        product.id,
+        2,
+        1,
+        product.id,
+        null,
+        null,
+        null,
+        "ALL",
+        0,
+        0,
+        now,
+        now
+      );
+    }
+    const category = db.prepare("SELECT id FROM categories WHERE is_active = 1 LIMIT 1").get();
+    if ((category == null ? void 0 : category.id) && !exists("CAT10")) {
+      insert.run(
+        crypto$1.randomUUID(),
+        branch.id,
+        "CAT10",
+        "10% off category",
+        "PERCENTAGE",
+        10,
+        0,
+        800,
+        "CATEGORY",
+        category.id,
+        0,
+        0,
+        null,
+        null,
+        null,
+        null,
+        "ALL",
+        0,
+        0,
+        now,
+        now
+      );
+    }
+    if (!exists("VIPONLY")) {
+      insert.run(
+        crypto$1.randomUUID(),
+        branch.id,
+        "VIPONLY",
+        "VIP 12% off",
+        "PERCENTAGE",
+        12,
+        2e3,
+        1e3,
+        "ALL",
+        null,
+        0,
+        0,
+        null,
+        null,
+        null,
+        null,
+        "VIP",
+        0,
+        0,
+        now,
+        now
+      );
+    }
+  }
+};
+const migration019 = {
+  version: 19,
+  name: "audit_security",
+  up: (db) => {
+    try {
+      applyRoleMatrix(db);
+    } catch (e) {
+    }
+    try {
+      db.prepare(`
+        INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+        VALUES (?, NULL, NULL, 'PERMISSION_CHANGE', 'ROLE_MATRIX', 'system', ?, ?)
+      `).run(
+        crypto$1.randomUUID ? crypto$1.randomUUID() : `${Date.now()}`,
+        JSON.stringify({ source: "migration019", added: "audit:view" }),
+        (/* @__PURE__ */ new Date()).toISOString()
+      );
+    } catch (e) {
+    }
   }
 };
 const MIGRATIONS = [
@@ -1120,7 +1689,14 @@ const MIGRATIONS = [
   migration009,
   migration010,
   migration011,
-  migration012
+  migration012,
+  migration013,
+  migration014,
+  migration015,
+  migration016,
+  migration017,
+  migration018,
+  migration019
 ];
 function runMigrations(db) {
   db.exec(`
@@ -1154,6 +1730,75 @@ function runMigrations(db) {
     currentVersion
   };
 }
+const SECRET_KEY = /password|passwd|pin|secret|token|apikey|api_key|supabase_key|private_key|hash/i;
+const SENSITIVE_ACTIONS = /* @__PURE__ */ new Set(["FAILED_LOGIN", "UPDATE_SETTINGS", "CREATE_USER", "UPDATE_USER"]);
+function sanitizeDetails(details) {
+  if (details == null) return null;
+  let value = details;
+  if (typeof details === "string") {
+    try {
+      value = JSON.parse(details);
+    } catch {
+      return details;
+    }
+  }
+  if (typeof value !== "object") return value;
+  const out = Array.isArray(value) ? [] : {};
+  for (const [key, val] of Object.entries(value)) {
+    if (SECRET_KEY.test(key)) {
+      out[key] = val ? "[redacted]" : null;
+      continue;
+    }
+    if (val && typeof val === "object") {
+      out[key] = sanitizeDetails(val);
+    } else {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+function writeAudit({ branchId, action, entityType, entityId, details, userId } = {}) {
+  try {
+    const db = getDb();
+    let actorId = userId || null;
+    if (actorId) {
+      const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(actorId);
+      if (!exists) actorId = null;
+    }
+    db.prepare(`
+      INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      crypto$1.randomUUID(),
+      branchId || null,
+      actorId,
+      action,
+      entityType || null,
+      entityId || null,
+      JSON.stringify(sanitizeDetails(details || {})),
+      (/* @__PURE__ */ new Date()).toISOString()
+    );
+  } catch (e) {
+    console.error("[Audit Log] Failed to record audit:", e);
+  }
+}
+function redactAuditRow(row, { fullAccess = false } = {}) {
+  if (!row) return row;
+  const copy = { ...row };
+  let details = null;
+  try {
+    details = copy.details_json ? JSON.parse(copy.details_json) : null;
+  } catch {
+    details = null;
+  }
+  details = sanitizeDetails(details);
+  if (!fullAccess && SENSITIVE_ACTIONS.has(copy.action)) {
+    copy.details_json = JSON.stringify({ note: "Details restricted" });
+    return copy;
+  }
+  copy.details_json = details ? JSON.stringify(details) : null;
+  return copy;
+}
 let currentSession = null;
 function hashSecret(secret) {
   if (!secret) return null;
@@ -1173,7 +1818,7 @@ function verifySecret(secret, storedHash) {
     return false;
   }
 }
-const authRepository$1 = {
+const authRepository = {
   /**
    * Get active user session
    */
@@ -1311,7 +1956,7 @@ const authRepository$1 = {
   },
   completeInitialSetup: ({ restaurantName, username, displayName, password, pin }) => {
     const db = getDb();
-    if (authRepository$1.needsSetup() === false) {
+    if (authRepository.needsSetup() === false) {
       throw new Error("Initial setup is already complete. Sign in with an existing administrator account.");
     }
     if (!(username == null ? void 0 : username.trim()) || !password || password.length < 8) {
@@ -1375,7 +2020,7 @@ const authRepository$1 = {
       `).run(now);
     });
     setupTx();
-    return authRepository$1.loginWithPassword(username.trim().toLowerCase(), password);
+    return authRepository.loginWithPassword(username.trim().toLowerCase(), password);
   },
   /**
    * Set user Password (hashed)
@@ -1434,7 +2079,7 @@ function logAudit$8(branchId, action, entityType, entityId, details) {
       action,
       entityType,
       entityId,
-      JSON.stringify(details),
+      JSON.stringify(sanitizeDetails(details || {})),
       (/* @__PURE__ */ new Date()).toISOString()
     );
   } catch (e) {
@@ -1474,83 +2119,7 @@ function seedDatabase(db, options = {}) {
     } else {
       branchId = db.prepare("SELECT id FROM branches LIMIT 1").get().id;
     }
-    const roles = [
-      { code: "super_admin", name: "Super Administrator", desc: "Full system and branch access", is_system: 1 },
-      { code: "branch_admin", name: "Branch Admin / Owner", desc: "Full branch management without global system locks", is_system: 1 },
-      { code: "manager", name: "Restaurant Manager", desc: "Orders, inventory, staff, discounts and reports", is_system: 1 },
-      { code: "cashier", name: "Cashier", desc: "POS order entry, payments and receipts", is_system: 1 },
-      { code: "waiter", name: "Waiter", desc: "Dine-in table orders and customer service", is_system: 1 },
-      { code: "kitchen_staff", name: "Kitchen Staff", desc: "Kitchen display screen and order preparation", is_system: 1 },
-      { code: "inventory_officer", name: "Inventory Officer", desc: "Stock movements, purchases and ingredients", is_system: 1 },
-      { code: "accountant", name: "Accountant", desc: "Expenses, settlements and financial reports", is_system: 1 },
-      { code: "delivery_rider", name: "Delivery Rider", desc: "Assigned deliveries and rider status updates", is_system: 1 },
-      { code: "receptionist", name: "Reception / Reservation", desc: "Reservations, customers and table coordination", is_system: 1 }
-    ];
-    const roleMap = {};
-    for (const r of roles) {
-      let existing = db.prepare("SELECT id FROM roles WHERE code = ?").get(r.code);
-      if (!existing) {
-        const id = uuid$b();
-        db.prepare("INSERT INTO roles (id, code, name, description, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, r.code, r.name, r.desc, r.is_system, (/* @__PURE__ */ new Date()).toISOString());
-        roleMap[r.code] = id;
-      } else {
-        roleMap[r.code] = existing.id;
-      }
-    }
-    const permissions = [
-      { code: "dashboard:view", name: "View Dashboard Metrics", module: "DASHBOARD" },
-      { code: "pos:create_order", name: "Create Orders", module: "POS" },
-      { code: "pos:apply_discount", name: "Apply Discount", module: "POS" },
-      { code: "pos:process_refund", name: "Process Refund", module: "POS" },
-      { code: "menu:manage", name: "Manage Products & Menu", module: "MENU" },
-      { code: "inventory:manage", name: "Manage Inventory & Stock", module: "INVENTORY" },
-      { code: "reports:view", name: "View Reports & Analytics", module: "REPORTS" },
-      { code: "staff:manage", name: "Manage Staff & Roles", module: "STAFF" },
-      { code: "settings:manage", name: "Manage System Settings", module: "SETTINGS" },
-      { code: "kitchen:view", name: "Access Kitchen Display (KDS)", module: "KITCHEN" },
-      { code: "reservations:manage", name: "Manage Reservations", module: "RESERVATIONS" },
-      { code: "delivery:manage", name: "Manage Delivery & Riders", module: "DELIVERY" },
-      { code: "expenses:manage", name: "Manage Expenses", module: "EXPENSES" },
-      { code: "cash:manage", name: "Manage Cash Drawer", module: "CASH" }
-    ];
-    for (const p of permissions) {
-      let existing = db.prepare("SELECT id FROM permissions WHERE code = ?").get(p.code);
-      let permId = existing == null ? void 0 : existing.id;
-      if (!existing) {
-        permId = uuid$b();
-        db.prepare("INSERT INTO permissions (id, code, name, module, description) VALUES (?, ?, ?, ?, ?)").run(permId, p.code, p.name, p.module, p.name);
-      }
-      if (roleMap.super_admin && permId) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.super_admin, permId);
-      }
-      if (roleMap.branch_admin && permId && p.code !== "settings:manage") {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.branch_admin, permId);
-      }
-      if (roleMap.manager && permId && p.code !== "settings:manage") {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.manager, permId);
-      }
-      if (roleMap.cashier && permId && ["dashboard:view", "pos:create_order", "pos:apply_discount", "cash:manage", "delivery:manage"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.cashier, permId);
-      }
-      if (roleMap.waiter && permId && ["pos:create_order", "reservations:manage"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.waiter, permId);
-      }
-      if (roleMap.kitchen_staff && permId && ["kitchen:view"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.kitchen_staff, permId);
-      }
-      if (roleMap.inventory_officer && permId && ["inventory:manage", "dashboard:view"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.inventory_officer, permId);
-      }
-      if (roleMap.accountant && permId && ["reports:view", "dashboard:view", "expenses:manage"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.accountant, permId);
-      }
-      if (roleMap.delivery_rider && permId && ["delivery:manage"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.delivery_rider, permId);
-      }
-      if (roleMap.receptionist && permId && ["pos:create_order", "dashboard:view", "reservations:manage"].includes(p.code)) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)").run(roleMap.receptionist, permId);
-      }
-    }
+    const { roleIds: roleMap } = applyRoleMatrix(db);
     const staffUsers = includeDemoUsers ? [
       {
         roleCode: "super_admin",
@@ -1692,12 +2261,20 @@ function seedDatabase(db, options = {}) {
       }
     } catch (e) {
     }
-    const unitCount = db.prepare("SELECT COUNT(*) as count FROM inventory_units").get().count;
-    if (unitCount === 0) {
-      db.prepare("INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)").run(uuid$b(), "Kilogram", "kg");
-      db.prepare("INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)").run(uuid$b(), "Gram", "g");
-      db.prepare("INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)").run(uuid$b(), "Piece", "pc");
-      db.prepare("INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)").run(uuid$b(), "Liter", "L");
+    const defaultUnits = [
+      ["Kilogram", "kg"],
+      ["Gram", "g"],
+      ["Piece", "pc"],
+      ["Liter", "L"],
+      ["Millilitre", "ml"],
+      ["Pack", "pack"],
+      ["Box", "box"]
+    ];
+    const insertMissingUnit = db.prepare(
+      "INSERT INTO inventory_units (id, name, abbreviation) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM inventory_units WHERE abbreviation = ?)"
+    );
+    for (const [name, abbr] of defaultUnits) {
+      insertMissingUnit.run(uuid$b(), name, abbr, abbr);
     }
     const supplierCount = db.prepare("SELECT COUNT(*) as count FROM suppliers").get().count;
     const supplierMap = {};
@@ -2141,6 +2718,16 @@ const settingsRepository = {
     return true;
   }
 };
+let flushHook = null;
+function setOutboxFlushHook(fn) {
+  flushHook = typeof fn === "function" ? fn : null;
+}
+function requestFlush() {
+  try {
+    flushHook == null ? void 0 : flushHook();
+  } catch {
+  }
+}
 function enqueueIfNeeded(entityType, entityId, operation, payload = {}) {
   const db = getDb();
   const existing = db.prepare(`
@@ -2181,6 +2768,7 @@ function enqueueOutbox(entityType, entityId, operation, payload = {}) {
       JSON.stringify(payload),
       now
     );
+    requestFlush();
   } catch (err) {
     console.warn("[Outbox] Could not enqueue:", err.message);
   }
@@ -2191,7 +2779,7 @@ function uuid$a() {
 function logAudit$7(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
     let validUserId = null;
     if (session == null ? void 0 : session.id) {
       const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
@@ -2294,7 +2882,7 @@ const productRepository = {
              p.preparation_time_minutes, p.is_available, p.has_variations, p.track_inventory,
              p.is_featured, p.is_discount_eligible, p.min_order_qty, p.max_order_qty,
              p.price_dine_in_cents, p.price_takeaway_cents, p.price_delivery_cents,
-             p.image_url, p.is_active, p.created_at, p.updated_at
+             p.kitchen_station_id, p.image_url, p.is_active, p.created_at, p.updated_at
       FROM products p
       JOIN categories c ON p.category_id = c.id
       WHERE (p.branch_id = ? OR p.branch_id IS NULL)
@@ -2361,14 +2949,14 @@ const productRepository = {
           is_available, has_variations, track_inventory,
           is_featured, is_discount_eligible, min_order_qty, max_order_qty,
           price_dine_in_cents, price_takeaway_cents, price_delivery_cents,
-          is_active, created_at, updated_at
+          kitchen_station_id, is_active, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
-          1, ?, ?
+          ?, 1, ?, ?
         )
       `).run(
         productId,
@@ -2393,6 +2981,7 @@ const productRepository = {
         productData.priceDineInCents || null,
         productData.priceTakeawayCents || null,
         productData.priceDeliveryCents || null,
+        productData.kitchenStationId || productData.kitchen_station_id || null,
         now,
         now
       );
@@ -2460,10 +3049,20 @@ const productRepository = {
       const priceTakeaway = productData.priceTakeawayCents !== void 0 ? productData.priceTakeawayCents : existing.price_takeaway_cents;
       const priceDelivery = productData.priceDeliveryCents !== void 0 ? productData.priceDeliveryCents : existing.price_delivery_cents;
       if (existing.base_price_cents !== basePrice) {
-        logAudit$7(productData.branchId, "PRICE_CHANGE", "PRODUCT", id, {
+        logAudit$7(productData.branchId || existing.branch_id, "PRICE_CHANGE", "PRODUCT", id, {
           oldPriceCents: existing.base_price_cents,
           newPriceCents: basePrice,
           productName: productData.name || existing.name
+        });
+      }
+      if (existing.price_dine_in_cents !== priceDineIn || existing.price_takeaway_cents !== priceTakeaway || existing.price_delivery_cents !== priceDelivery) {
+        logAudit$7(productData.branchId || existing.branch_id, "PRICE_CHANGE", "PRODUCT", id, {
+          productName: productData.name || existing.name,
+          channel: {
+            dineIn: { from: existing.price_dine_in_cents, to: priceDineIn },
+            takeaway: { from: existing.price_takeaway_cents, to: priceTakeaway },
+            delivery: { from: existing.price_delivery_cents, to: priceDelivery }
+          }
         });
       }
       db.prepare(`
@@ -2474,6 +3073,7 @@ const productRepository = {
             track_inventory = ?, is_featured = ?, is_discount_eligible = ?,
             min_order_qty = ?, max_order_qty = ?,
             price_dine_in_cents = ?, price_takeaway_cents = ?, price_delivery_cents = ?,
+            kitchen_station_id = ?,
             updated_at = ?
         WHERE id = ?
       `).run(
@@ -2497,6 +3097,7 @@ const productRepository = {
         priceDineIn,
         priceTakeaway,
         priceDelivery,
+        productData.kitchenStationId !== void 0 ? productData.kitchenStationId || null : productData.kitchen_station_id !== void 0 ? productData.kitchen_station_id : existing.kitchen_station_id,
         now,
         id
       );
@@ -2566,14 +3167,15 @@ const productRepository = {
     const db = getDb();
     const combos = db.prepare(`
       SELECT c.id, c.name, c.code, c.description, c.price_cents, c.is_available,
-             c.available_from, c.available_to, c.image_url, c.is_active, c.created_at
+             c.available_from, c.available_to, c.available_from_time, c.available_to_time,
+             c.image_url, c.is_active, c.created_at
       FROM combos c
       WHERE (c.branch_id = ? OR c.branch_id IS NULL) AND c.is_active = 1
       ORDER BY c.name ASC
     `).all(branchId);
     for (const combo of combos) {
       combo.items = db.prepare(`
-        SELECT ci.id, ci.product_id, ci.quantity, p.name as product_name, p.base_price_cents
+        SELECT ci.id, ci.product_id, ci.quantity, ci.choice_group, p.name as product_name, p.base_price_cents
         FROM combo_items ci
         JOIN products p ON ci.product_id = p.id
         WHERE ci.combo_id = ?
@@ -2581,14 +3183,14 @@ const productRepository = {
     }
     return combos;
   },
-  createCombo: ({ branchId, name, code, description, priceCents, isAvailable = 1, availableFrom = null, availableTo = null, items, imageUrl = null }) => {
+  createCombo: ({ branchId, name, code, description, priceCents, isAvailable = 1, availableFrom = null, availableTo = null, availableFromTime = null, availableToTime = null, items, imageUrl = null }) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const comboId = uuid$a();
     const createTx = db.transaction(() => {
       db.prepare(`
-        INSERT INTO combos (id, branch_id, name, code, description, price_cents, image_url, is_available, available_from, available_to, is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        INSERT INTO combos (id, branch_id, name, code, description, price_cents, image_url, is_available, available_from, available_to, available_from_time, available_to_time, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         comboId,
         branchId || null,
@@ -2600,15 +3202,17 @@ const productRepository = {
         isAvailable ? 1 : 0,
         availableFrom || null,
         availableTo || null,
+        availableFromTime || null,
+        availableToTime || null,
         now,
         now
       );
       if (Array.isArray(items)) {
         for (const item of items) {
           db.prepare(`
-            INSERT INTO combo_items (id, combo_id, product_id, quantity)
-            VALUES (?, ?, ?, ?)
-          `).run(uuid$a(), comboId, item.productId, item.quantity || 1);
+            INSERT INTO combo_items (id, combo_id, product_id, quantity, choice_group)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(uuid$a(), comboId, item.productId, item.quantity || 1, item.choiceGroup || item.choice_group || null);
         }
       }
       logAudit$7(branchId, "CREATE_COMBO", "COMBO", comboId, { name, priceCents });
@@ -2616,14 +3220,24 @@ const productRepository = {
     });
     return createTx();
   },
-  updateCombo: (id, { name, code, description, priceCents, isAvailable, availableFrom, availableTo, items, imageUrl }) => {
+  updateCombo: (id, { name, code, description, priceCents, isAvailable, availableFrom, availableTo, availableFromTime, availableToTime, items, imageUrl }) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const updateTx = db.transaction(() => {
+      const existing = db.prepare("SELECT * FROM combos WHERE id = ?").get(id);
+      if (existing && existing.price_cents !== priceCents) {
+        logAudit$7(existing.branch_id, "PRICE_CHANGE", "COMBO", id, {
+          name,
+          oldPriceCents: existing.price_cents,
+          newPriceCents: priceCents
+        });
+      }
       db.prepare(`
         UPDATE combos
         SET name = ?, code = ?, description = ?, price_cents = ?,
-            is_available = ?, available_from = ?, available_to = ?, image_url = COALESCE(?, image_url), updated_at = ?
+            is_available = ?, available_from = ?, available_to = ?,
+            available_from_time = ?, available_to_time = ?,
+            image_url = COALESCE(?, image_url), updated_at = ?
         WHERE id = ?
       `).run(
         name.trim(),
@@ -2633,6 +3247,8 @@ const productRepository = {
         isAvailable !== void 0 ? isAvailable ? 1 : 0 : 1,
         availableFrom || null,
         availableTo || null,
+        availableFromTime || null,
+        availableToTime || null,
         imageUrl !== void 0 ? imageUrl : null,
         now,
         id
@@ -2641,9 +3257,9 @@ const productRepository = {
         db.prepare("DELETE FROM combo_items WHERE combo_id = ?").run(id);
         for (const item of items) {
           db.prepare(`
-            INSERT INTO combo_items (id, combo_id, product_id, quantity)
-            VALUES (?, ?, ?, ?)
-          `).run(uuid$a(), id, item.productId, item.quantity || 1);
+            INSERT INTO combo_items (id, combo_id, product_id, quantity, choice_group)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(uuid$a(), id, item.productId, item.quantity || 1, item.choiceGroup || item.choice_group || null);
         }
       }
       logAudit$7(null, "UPDATE_COMBO", "COMBO", id, { name, priceCents });
@@ -2671,7 +3287,7 @@ function uuid$9() {
 function logAudit$6(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
     let validUserId = null;
     if (session == null ? void 0 : session.id) {
       const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
@@ -2707,9 +3323,34 @@ const tableRepository = {
       SELECT t.id, t.floor_id, t.table_number, t.capacity, t.status, t.current_order_id, t.is_active,
              o.order_number as current_order_number,
              o.total_cents as current_order_total_cents,
+             o.paid_cents as current_order_paid_cents,
              o.order_type as current_order_type,
              o.created_at as current_order_created_at,
-             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as current_order_item_count
+             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as current_order_item_count,
+             (SELECT r.customer_name FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_guest,
+             (SELECT r.reservation_time FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_time,
+             (SELECT r.party_size FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_party_size
       FROM dining_tables t
       LEFT JOIN orders o ON t.current_order_id = o.id AND o.status != 'COMPLETED' AND o.status != 'CANCELLED'
       WHERE (t.branch_id = ? OR t.branch_id IS NULL) AND t.is_active = 1
@@ -2722,9 +3363,11 @@ const tableRepository = {
       if (t.current_order_created_at) {
         occupancyMinutes = Math.max(0, Math.floor((now - new Date(t.current_order_created_at).getTime()) / 6e4));
       }
+      const hasReservation = Boolean(t.reservation_guest);
       const enrichedTable = {
         ...t,
-        occupancyMinutes
+        occupancyMinutes,
+        has_reservation: hasReservation ? 1 : 0
       };
       if (!tableMap[t.floor_id]) tableMap[t.floor_id] = [];
       tableMap[t.floor_id].push(enrichedTable);
@@ -2908,6 +3551,133 @@ const tableRepository = {
       };
     });
     return mergeTx();
+  },
+  splitBill: ({ sourceTableId, targetTableId, itemIds, reason = "Split bill" }) => {
+    const db = getDb();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const moveIds = Array.isArray(itemIds) ? itemIds.filter(Boolean) : [];
+    if (moveIds.length === 0) throw new Error("Select at least one item to move onto the new bill.");
+    const splitTx = db.transaction(() => {
+      const source = db.prepare("SELECT * FROM dining_tables WHERE id = ?").get(sourceTableId);
+      const target = db.prepare("SELECT * FROM dining_tables WHERE id = ?").get(targetTableId);
+      if (!source || !target) throw new Error("Source or target table was not found.");
+      if (!source.current_order_id) throw new Error(`Table ${source.table_number} has no active bill to split.`);
+      if (target.status === "OCCUPIED" && target.current_order_id) {
+        throw new Error(`Target table ${target.table_number} is already occupied.`);
+      }
+      if (target.status === "OUT_OF_SERVICE") {
+        throw new Error(`Target table ${target.table_number} is out of service.`);
+      }
+      const sourceOrder = db.prepare("SELECT * FROM orders WHERE id = ?").get(source.current_order_id);
+      if (!sourceOrder) throw new Error("Source order could not be loaded.");
+      if (["COMPLETED", "CANCELLED", "REFUNDED"].includes(sourceOrder.status)) {
+        throw new Error("Cannot split a completed, cancelled, or refunded bill.");
+      }
+      if ((sourceOrder.paid_cents || 0) > 0 && (sourceOrder.paid_cents || 0) >= (sourceOrder.total_cents || 0)) {
+        throw new Error("Cannot split a fully paid bill.");
+      }
+      const allItems = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(sourceOrder.id);
+      if (allItems.length <= 1) throw new Error("Need at least two items on the bill to split.");
+      const moveSet = new Set(moveIds);
+      const moving = allItems.filter((it) => moveSet.has(it.id));
+      const remaining = allItems.filter((it) => !moveSet.has(it.id));
+      if (moving.length === 0) throw new Error("None of the selected items belong to this bill.");
+      if (remaining.length === 0) throw new Error("Leave at least one item on the original table.");
+      const origSub = Math.max(1, sourceOrder.subtotal_cents || 0);
+      const movedSub = moving.reduce((sum, it) => sum + (it.total_cents || 0), 0);
+      const remainSub = remaining.reduce((sum, it) => sum + (it.total_cents || 0), 0);
+      const ratio = movedSub / origSub;
+      const movedDiscount = Math.round((sourceOrder.discount_cents || 0) * ratio);
+      const movedTax = Math.round((sourceOrder.tax_cents || 0) * ratio);
+      const movedService = Math.round((sourceOrder.service_charge_cents || 0) * ratio);
+      const movedTotal = Math.max(0, movedSub - movedDiscount + movedTax + movedService);
+      const newOrderId = uuid$9();
+      const newOrderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      db.prepare(`
+        INSERT INTO orders (
+          id, branch_id, order_number, order_type, order_source, status,
+          table_id, customer_id, cashier_id, subtotal_cents, discount_cents,
+          discount_reason, tax_cents, service_charge_cents, delivery_charge_cents,
+          total_cents, paid_cents, notes, kitchen_accepted_at, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?
+        )
+      `).run(
+        newOrderId,
+        sourceOrder.branch_id,
+        newOrderNumber,
+        sourceOrder.order_type || "DINE_IN",
+        sourceOrder.order_source || "POS",
+        sourceOrder.status === "DRAFT" ? "DRAFT" : "CONFIRMED",
+        targetTableId,
+        sourceOrder.customer_id,
+        sourceOrder.cashier_id,
+        movedSub,
+        movedDiscount,
+        sourceOrder.discount_reason || null,
+        movedTax,
+        movedService,
+        0,
+        movedTotal,
+        0,
+        `Split from ${sourceOrder.order_number} (${source.table_number}). ${reason}`,
+        sourceOrder.status === "DRAFT" ? null : now,
+        now,
+        now
+      );
+      for (const item of moving) {
+        db.prepare("UPDATE order_items SET order_id = ? WHERE id = ?").run(newOrderId, item.id);
+      }
+      const remainDiscount = Math.max(0, (sourceOrder.discount_cents || 0) - movedDiscount);
+      const remainTax = Math.max(0, (sourceOrder.tax_cents || 0) - movedTax);
+      const remainService = Math.max(0, (sourceOrder.service_charge_cents || 0) - movedService);
+      const remainTotal = Math.max(0, remainSub - remainDiscount + remainTax + remainService + (sourceOrder.delivery_charge_cents || 0));
+      db.prepare(`
+        UPDATE orders
+        SET subtotal_cents = ?,
+            discount_cents = ?,
+            tax_cents = ?,
+            service_charge_cents = ?,
+            total_cents = ?,
+            notes = TRIM(COALESCE(notes, '') || char(10) || 'Split items to ' || ? || ' (' || ? || ')'),
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        remainSub,
+        remainDiscount,
+        remainTax,
+        remainService,
+        remainTotal,
+        target.table_number,
+        newOrderNumber,
+        now,
+        sourceOrder.id
+      );
+      db.prepare(`
+        INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+        VALUES (?, ?, NULL, ?, NULL, ?, ?)
+      `).run(uuid$9(), newOrderId, sourceOrder.status === "DRAFT" ? "DRAFT" : "CONFIRMED", `Split from ${sourceOrder.order_number}. ${reason}`, now);
+      db.prepare("UPDATE dining_tables SET status = 'OCCUPIED', current_order_id = ?, updated_at = ? WHERE id = ?").run(newOrderId, now, targetTableId);
+      logAudit$6(source.branch_id, "SPLIT_BILL", "TABLE", sourceOrder.id, {
+        sourceTable: source.table_number,
+        targetTable: target.table_number,
+        sourceOrder: sourceOrder.order_number,
+        newOrder: newOrderNumber,
+        movedItems: moving.length,
+        reason
+      });
+      return {
+        sourceOrderId: sourceOrder.id,
+        newOrderId,
+        newOrderNumber,
+        sourceTableNumber: source.table_number,
+        targetTableNumber: target.table_number
+      };
+    });
+    return splitTx();
   }
 };
 function uuid$8() {
@@ -2916,7 +3686,7 @@ function uuid$8() {
 function logAudit$5(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
     let validUserId = null;
     if (session == null ? void 0 : session.id) {
       const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
@@ -2938,6 +3708,107 @@ function logAudit$5(branchId, action, entityType, entityId, details) {
   } catch (e) {
     console.error("Failed to log audit:", e);
   }
+}
+function enrichStockRow(row) {
+  if (!row) return null;
+  const current = parseFloat(row.current_stock || 0);
+  const reserved = Math.max(0, parseFloat(row.reserved_stock || 0));
+  const available = Math.max(0, current - reserved);
+  const minLevel = parseFloat(row.minimum_level || 0);
+  const reorder = parseFloat(row.reorder_level != null ? row.reorder_level : minLevel);
+  const avgCost = row.avg_cost_cents != null ? row.avg_cost_cents : row.cost_per_unit_cents || 0;
+  return {
+    ...row,
+    reserved_stock: reserved,
+    available_stock: available,
+    avg_cost_cents: avgCost,
+    reorder_level: reorder,
+    isLowStock: available <= reorder,
+    isOutOfStock: available <= 0,
+    totalValueCents: Math.round(current * avgCost)
+  };
+}
+function weightedAverageCost(prevQty, prevCost, addQty, addCost) {
+  const prev = Math.max(0, parseFloat(prevQty || 0));
+  const add = parseFloat(addQty || 0);
+  const pCost = parseInt(prevCost || 0, 10);
+  const aCost = parseInt(addCost || 0, 10);
+  if (add <= 0) return pCost;
+  if (prev <= 0) return aCost;
+  return Math.round((prev * pCost + add * aCost) / (prev + add));
+}
+function unitCostCents(item) {
+  return (item == null ? void 0 : item.avg_cost_cents) != null ? item.avg_cost_cents : (item == null ? void 0 : item.cost_per_unit_cents) || 0;
+}
+function postInboundStock(db, { branchId, itemId, qty, unitCost, now, referenceType, referenceId, reason, movementType = "PURCHASE" }) {
+  const rawItem = db.prepare("SELECT current_stock, cost_per_unit_cents, avg_cost_cents FROM inventory_items WHERE id = ?").get(itemId);
+  if (!rawItem) return;
+  const prev = parseFloat(rawItem.current_stock || 0);
+  const added = parseFloat(qty);
+  if (!added) return;
+  const next = parseFloat((prev + added).toFixed(3));
+  const cost = parseInt(unitCost, 10) || 0;
+  const avg = weightedAverageCost(prev, unitCostCents(rawItem), added, cost);
+  db.prepare(`
+    UPDATE inventory_items
+    SET current_stock = ?, cost_per_unit_cents = ?, avg_cost_cents = ?, updated_at = ?
+    WHERE id = ?
+  `).run(next, avg, avg, now, itemId);
+  db.prepare(`
+    INSERT INTO stock_movements (
+      id, branch_id, inventory_item_id, movement_type, quantity,
+      previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
+      reason, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(uuid$8(), branchId, itemId, movementType, Math.abs(added), prev, next, cost, referenceType, referenceId, reason, now);
+}
+function computeFoodCost(ingredients, yieldQuantity) {
+  const batchCostCents = ingredients.reduce((sum, ing) => {
+    const wasteFactor = 1 + parseFloat(ing.wastage_percentage || ing.wastagePercentage || 0) / 100;
+    const qty = parseFloat(ing.quantity_required || ing.quantityRequired || 0);
+    const cost = unitCostCents(ing);
+    return sum + Math.round(qty * wasteFactor * cost);
+  }, 0);
+  const yieldQty = Math.max(1e-4, parseFloat(yieldQuantity || 1));
+  return {
+    batchCostCents,
+    foodCostCents: Math.round(batchCostCents / yieldQty)
+  };
+}
+function loadRecipeIngredients(db, recipeId) {
+  return db.prepare(`
+    SELECT ri.*,
+           i.name as item_name, i.current_stock, i.cost_per_unit_cents, i.avg_cost_cents,
+           u.abbreviation as unit_abbr
+    FROM recipe_ingredients ri
+    JOIN inventory_items i ON ri.inventory_item_id = i.id
+    LEFT JOIN inventory_units u ON i.unit_id = u.id
+    WHERE ri.recipe_id = ?
+  `).all(recipeId);
+}
+function collectOrderRecipeUsage(db, orderId) {
+  const items = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(orderId);
+  const usage = [];
+  for (const it of items) {
+    const recipe = it.variation_id ? db.prepare("SELECT * FROM recipes WHERE product_id = ? AND variation_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1").get(it.product_id, it.variation_id) : db.prepare("SELECT * FROM recipes WHERE product_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1").get(it.product_id);
+    if (!recipe) continue;
+    const ingredients = loadRecipeIngredients(db, recipe.id);
+    const itemQty2 = it.quantity || 1;
+    const yieldQty = Math.max(1e-4, parseFloat(recipe.yield_quantity || 1));
+    for (const ing of ingredients) {
+      const wasteFactor = 1 + (ing.wastage_percentage || 0) / 100;
+      const deductAmount = parseFloat((ing.quantity_required * itemQty2 * wasteFactor / yieldQty).toFixed(3));
+      usage.push({
+        inventoryItemId: ing.inventory_item_id,
+        itemName: ing.item_name,
+        deductAmount,
+        unitCostCents: unitCostCents(ing),
+        orderItemName: it.item_name,
+        itemQty: itemQty2
+      });
+    }
+  }
+  return usage;
 }
 const inventoryRepository = {
   // ==========================================
@@ -2977,16 +3848,11 @@ const inventoryRepository = {
       queryParams.push(term, term);
     }
     if (params.lowStockOnly) {
-      query += " AND i.current_stock <= i.minimum_level";
+      query += " AND (i.current_stock - COALESCE(i.reserved_stock, 0)) <= COALESCE(i.reorder_level, i.minimum_level)";
     }
     query += " ORDER BY i.name ASC";
     const rows = db.prepare(query).all(...queryParams);
-    return rows.map((row) => ({
-      ...row,
-      isLowStock: row.current_stock <= row.minimum_level,
-      isOutOfStock: row.current_stock <= 0,
-      totalValueCents: Math.round(row.current_stock * (row.cost_per_unit_cents || 0))
-    }));
+    return rows.map((row) => enrichStockRow(row));
   },
   getItemById: (id) => {
     const db = getDb();
@@ -3000,12 +3866,7 @@ const inventoryRepository = {
       WHERE i.id = ?
     `).get(id);
     if (!row) return null;
-    return {
-      ...row,
-      isLowStock: row.current_stock <= row.minimum_level,
-      isOutOfStock: row.current_stock <= 0,
-      totalValueCents: Math.round(row.current_stock * (row.cost_per_unit_cents || 0))
-    };
+    return enrichStockRow(row);
   },
   createItem: (itemData) => {
     var _a;
@@ -3017,9 +3878,10 @@ const inventoryRepository = {
     const createItemTx = db.transaction(() => {
       db.prepare(`
         INSERT INTO inventory_items (
-          id, branch_id, name, sku, unit_id, current_stock, minimum_level,
-          cost_per_unit_cents, category, supplier_id, image_url, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+          id, branch_id, name, sku, unit_id, current_stock, opening_stock, minimum_level,
+          reorder_level, reserved_stock, cost_per_unit_cents, avg_cost_cents, category,
+          supplier_id, conversion_factor, conversion_unit_id, image_url, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       `).run(
         id,
         branchId,
@@ -3027,10 +3889,15 @@ const inventoryRepository = {
         itemData.sku || `RAW-${Date.now().toString().slice(-6)}`,
         itemData.unitId,
         openingStock,
+        openingStock,
         parseFloat(itemData.minimumLevel || 5),
+        parseFloat(itemData.reorderLevel != null ? itemData.reorderLevel : itemData.minimumLevel || 5),
+        parseInt(itemData.costPerUnitCents || 0, 10),
         parseInt(itemData.costPerUnitCents || 0, 10),
         itemData.category || "General",
         itemData.supplierId || null,
+        itemData.conversionFactor ? parseFloat(itemData.conversionFactor) : null,
+        itemData.conversionUnitId || null,
         itemData.imageUrl || itemData.image_url || null,
         now,
         now
@@ -3070,7 +3937,10 @@ const inventoryRepository = {
           sku = COALESCE(?, sku),
           unit_id = COALESCE(?, unit_id),
           minimum_level = COALESCE(?, minimum_level),
+          reorder_level = COALESCE(?, reorder_level),
           cost_per_unit_cents = COALESCE(?, cost_per_unit_cents),
+          conversion_factor = COALESCE(?, conversion_factor),
+          conversion_unit_id = COALESCE(?, conversion_unit_id),
           image_url = COALESCE(?, image_url),
           category = COALESCE(?, category),
           supplier_id = COALESCE(?, supplier_id),
@@ -3081,7 +3951,10 @@ const inventoryRepository = {
       itemData.sku ?? null,
       itemData.unitId ?? null,
       itemData.minimumLevel !== void 0 ? parseFloat(itemData.minimumLevel) : null,
+      itemData.reorderLevel !== void 0 ? parseFloat(itemData.reorderLevel) : null,
       itemData.costPerUnitCents !== void 0 ? parseInt(itemData.costPerUnitCents, 10) : null,
+      itemData.conversionFactor !== void 0 ? itemData.conversionFactor ? parseFloat(itemData.conversionFactor) : null : null,
+      itemData.conversionUnitId !== void 0 ? itemData.conversionUnitId || null : null,
       itemData.imageUrl !== void 0 ? itemData.imageUrl : itemData.image_url ?? null,
       itemData.category ?? null,
       itemData.supplierId ?? null,
@@ -3091,14 +3964,36 @@ const inventoryRepository = {
     logAudit$5(existing.branch_id, "UPDATE_INVENTORY_ITEM", "INVENTORY_ITEM", id, itemData);
     return inventoryRepository.getItemById(id);
   },
+  getLowStockAlerts: (branchId) => {
+    var _a;
+    const db = getDb();
+    const targetBranchId = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
+    const rows = db.prepare(`
+      SELECT i.*, u.abbreviation as unit_abbr
+      FROM inventory_items i
+      LEFT JOIN inventory_units u ON i.unit_id = u.id
+      WHERE i.branch_id = ? AND i.is_active = 1
+        AND (i.current_stock - COALESCE(i.reserved_stock, 0)) <= COALESCE(i.reorder_level, i.minimum_level)
+      ORDER BY i.name ASC
+    `).all(targetBranchId);
+    return rows.map((row) => enrichStockRow(row));
+  },
+  getBranches: () => {
+    const db = getDb();
+    return db.prepare("SELECT id, name, code FROM branches ORDER BY name ASC").all();
+  },
   /**
    * Manual Stock Adjustment, Wastage or Return
    */
-  adjustStock: ({ itemId, branchId, quantityChange, movementType, reason, userId }) => {
+  adjustStock: ({ itemId, branchId, quantityChange, movementType, reason, userId, packQuantity }) => {
     const db = getDb();
     const item = db.prepare("SELECT * FROM inventory_items WHERE id = ?").get(itemId);
     if (!item) throw new Error(`Inventory item with ID "${itemId}" not found.`);
-    const delta = parseFloat(quantityChange);
+    let delta = parseFloat(quantityChange);
+    const packs = parseFloat(packQuantity);
+    if (!isNaN(packs) && packs !== 0 && item.conversion_factor) {
+      delta = packs * parseFloat(item.conversion_factor);
+    }
     if (isNaN(delta) || delta === 0) {
       throw new Error("Quantity change must be a non-zero number.");
     }
@@ -3146,6 +4041,103 @@ const inventoryRepository = {
     });
     return adjustTx();
   },
+  transferStock: ({ itemId, toBranchId, quantity, reason, userId }) => {
+    const db = getDb();
+    const source = db.prepare("SELECT * FROM inventory_items WHERE id = ?").get(itemId);
+    if (!source) throw new Error("Inventory item not found.");
+    if (!toBranchId) throw new Error("Destination branch is required.");
+    if (source.branch_id === toBranchId) throw new Error("Cannot transfer stock to the same branch.");
+    const qty = parseFloat(quantity);
+    if (isNaN(qty) || qty <= 0) throw new Error("Transfer quantity must be greater than zero.");
+    const prev = parseFloat(source.current_stock);
+    if (qty > prev) throw new Error(`Insufficient stock to transfer. Available: ${prev}`);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const transferTx = db.transaction(() => {
+      const nextSource = parseFloat((prev - qty).toFixed(3));
+      db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = ? WHERE id = ?").run(nextSource, now, source.id);
+      db.prepare(`
+        INSERT INTO stock_movements (
+          id, branch_id, inventory_item_id, movement_type, quantity,
+          previous_stock, new_stock, unit_cost_cents, reference_type,
+          reason, user_id, created_at
+        ) VALUES (?, ?, ?, 'TRANSFER_OUT', ?, ?, ?, ?, 'TRANSFER', ?, ?, ?)
+      `).run(
+        uuid$8(),
+        source.branch_id,
+        source.id,
+        qty,
+        prev,
+        nextSource,
+        unitCostCents(source),
+        reason || "Branch transfer",
+        userId || null,
+        now
+      );
+      let dest = db.prepare("SELECT * FROM inventory_items WHERE sku = ? AND branch_id = ?").get(source.sku, toBranchId);
+      if (!dest) {
+        const destId = uuid$8();
+        db.prepare(`
+          INSERT INTO inventory_items (
+            id, branch_id, name, sku, unit_id, current_stock, opening_stock, minimum_level,
+            reorder_level, reserved_stock, cost_per_unit_cents, avg_cost_cents, category,
+            supplier_id, conversion_factor, conversion_unit_id, image_url, is_active, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        `).run(
+          destId,
+          toBranchId,
+          source.name,
+          source.sku,
+          source.unit_id,
+          source.minimum_level,
+          source.reorder_level,
+          source.cost_per_unit_cents,
+          source.avg_cost_cents,
+          source.category,
+          source.supplier_id,
+          source.conversion_factor,
+          source.conversion_unit_id,
+          source.image_url,
+          now,
+          now
+        );
+        dest = db.prepare("SELECT * FROM inventory_items WHERE id = ?").get(destId);
+      }
+      const destPrev = parseFloat(dest.current_stock || 0);
+      const destNext = parseFloat((destPrev + qty).toFixed(3));
+      const avg = weightedAverageCost(destPrev, unitCostCents(dest), qty, unitCostCents(source));
+      db.prepare(`
+        UPDATE inventory_items
+        SET current_stock = ?, avg_cost_cents = ?, cost_per_unit_cents = ?, updated_at = ?
+        WHERE id = ?
+      `).run(destNext, avg, avg, now, dest.id);
+      db.prepare(`
+        INSERT INTO stock_movements (
+          id, branch_id, inventory_item_id, movement_type, quantity,
+          previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
+          reason, user_id, created_at
+        ) VALUES (?, ?, ?, 'TRANSFER_IN', ?, ?, ?, ?, 'TRANSFER', ?, ?, ?, ?)
+      `).run(
+        uuid$8(),
+        toBranchId,
+        dest.id,
+        qty,
+        destPrev,
+        destNext,
+        unitCostCents(source),
+        source.id,
+        reason || "Branch transfer",
+        userId || null,
+        now
+      );
+      logAudit$5(source.branch_id, "TRANSFER_STOCK", "INVENTORY_ITEM", source.id, {
+        toBranchId,
+        quantity: qty,
+        destItemId: dest.id
+      });
+      return inventoryRepository.getItemById(source.id);
+    });
+    return transferTx();
+  },
   getStockMovements: (params = {}) => {
     var _a;
     const db = getDb();
@@ -3181,7 +4173,7 @@ const inventoryRepository = {
     var _a;
     const db = getDb();
     const branchId = params.branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
-    const recipes = db.prepare(`
+    let sql = `
       SELECT r.*, 
              p.name as product_name, p.sku as product_sku, p.base_price_cents,
              c.name as category_name,
@@ -3190,25 +4182,18 @@ const inventoryRepository = {
       JOIN products p ON r.product_id = p.id
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN product_variations pv ON r.variation_id = pv.id
-      WHERE p.branch_id = ? AND p.is_active = 1
-      ORDER BY p.name ASC
-    `).all(branchId);
+      WHERE p.branch_id = ?
+    `;
+    if (!params.includeInactive) {
+      sql += " AND COALESCE(r.is_active, 1) = 1";
+    }
+    sql += " ORDER BY p.name ASC";
+    const recipes = db.prepare(sql).all(branchId);
     return recipes.map((rec) => {
-      const ingredients = db.prepare(`
-        SELECT ri.*, 
-               i.name as item_name, i.current_stock, i.cost_per_unit_cents,
-               u.abbreviation as unit_abbr
-        FROM recipe_ingredients ri
-        JOIN inventory_items i ON ri.inventory_item_id = i.id
-        LEFT JOIN inventory_units u ON i.unit_id = u.id
-        WHERE ri.recipe_id = ?
-      `).all(rec.id);
-      const foodCostCents = ingredients.reduce((sum, ing) => {
-        const wasteFactor = 1 + (ing.wastage_percentage || 0) / 100;
-        return sum + Math.round(ing.quantity_required * wasteFactor * (ing.cost_per_unit_cents || 0));
-      }, 0);
+      const ingredients = loadRecipeIngredients(db, rec.id);
+      const { foodCostCents } = computeFoodCost(ingredients, rec.yield_quantity);
       const sellingPriceCents = rec.variation_price_cents || rec.base_price_cents || 0;
-      const grossMarginCents = Math.max(0, sellingPriceCents - foodCostCents);
+      const grossMarginCents = sellingPriceCents - foodCostCents;
       const foodCostPercentage = sellingPriceCents > 0 ? parseFloat((foodCostCents / sellingPriceCents * 100).toFixed(1)) : 0;
       return {
         ...rec,
@@ -3226,19 +4211,8 @@ const inventoryRepository = {
     const params = variationId ? [productId, variationId] : [productId];
     const recipe = db.prepare(query).get(...params);
     if (!recipe) return null;
-    const ingredients = db.prepare(`
-      SELECT ri.*, 
-             i.name as item_name, i.current_stock, i.cost_per_unit_cents,
-             u.abbreviation as unit_abbr
-      FROM recipe_ingredients ri
-      JOIN inventory_items i ON ri.inventory_item_id = i.id
-      LEFT JOIN inventory_units u ON i.unit_id = u.id
-      WHERE ri.recipe_id = ?
-    `).all(recipe.id);
-    const foodCostCents = ingredients.reduce((sum, ing) => {
-      const wasteFactor = 1 + (ing.wastage_percentage || 0) / 100;
-      return sum + Math.round(ing.quantity_required * wasteFactor * (ing.cost_per_unit_cents || 0));
-    }, 0);
+    const ingredients = loadRecipeIngredients(db, recipe.id);
+    const { foodCostCents } = computeFoodCost(ingredients, recipe.yield_quantity);
     return {
       ...recipe,
       ingredients,
@@ -3254,13 +4228,37 @@ const inventoryRepository = {
       `).get(productId, variationId || null, variationId || null);
       let recipeId = existing == null ? void 0 : existing.id;
       if (recipeId) {
-        db.prepare("UPDATE recipes SET yield_quantity = ?, notes = ?, image_url = COALESCE(?, image_url) WHERE id = ?").run(parseFloat(yieldQuantity || 1), notes || null, imageUrl, recipeId);
+        const prev = db.prepare("SELECT * FROM recipes WHERE id = ?").get(recipeId);
+        const prevIngredients = loadRecipeIngredients(db, recipeId);
+        const { foodCostCents } = computeFoodCost(prevIngredients, prev.yield_quantity);
+        const nextVersion = (prev.version || 1) + 1;
+        db.prepare(`
+          INSERT INTO recipe_versions (
+            id, recipe_id, version, product_id, yield_quantity, notes, ingredients_json, food_cost_cents, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          uuid$8(),
+          recipeId,
+          prev.version || 1,
+          prev.product_id,
+          prev.yield_quantity,
+          prev.notes,
+          JSON.stringify(prevIngredients),
+          foodCostCents,
+          (/* @__PURE__ */ new Date()).toISOString()
+        );
+        db.prepare(`
+          UPDATE recipes
+          SET yield_quantity = ?, notes = ?, image_url = COALESCE(?, image_url),
+              version = ?, is_active = 1, deactivated_at = NULL
+          WHERE id = ?
+        `).run(parseFloat(yieldQuantity || 1), notes || null, imageUrl, nextVersion, recipeId);
         db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(recipeId);
       } else {
         recipeId = uuid$8();
         db.prepare(`
-          INSERT INTO recipes (id, product_id, variation_id, yield_quantity, notes, image_url)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO recipes (id, product_id, variation_id, yield_quantity, notes, image_url, is_active, version)
+          VALUES (?, ?, ?, ?, ?, ?, 1, 1)
         `).run(recipeId, productId, variationId || null, parseFloat(yieldQuantity || 1), notes || null, imageUrl);
       }
       if (Array.isArray(ingredients)) {
@@ -3287,6 +4285,57 @@ const inventoryRepository = {
     });
     return saveRecipeTx();
   },
+  setRecipeActive: (recipeId, isActive) => {
+    const db = getDb();
+    const recipe = db.prepare("SELECT * FROM recipes WHERE id = ?").get(recipeId);
+    if (!recipe) throw new Error("Recipe not found.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    db.prepare(`
+      UPDATE recipes
+      SET is_active = ?, deactivated_at = ?
+      WHERE id = ?
+    `).run(isActive ? 1 : 0, isActive ? null : now, recipeId);
+    logAudit$5(null, isActive ? "ACTIVATE_RECIPE" : "DEACTIVATE_RECIPE", "RECIPE", recipeId, {});
+    return inventoryRepository.getRecipeForProduct(recipe.product_id, recipe.variation_id);
+  },
+  getRecipeVersions: (recipeId) => {
+    const db = getDb();
+    return db.prepare(`
+      SELECT * FROM recipe_versions
+      WHERE recipe_id = ?
+      ORDER BY version DESC
+    `).all(recipeId);
+  },
+  reserveRecipeStockForOrder: (orderId) => {
+    const db = getDb();
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+    if (!order || order.stock_posted === 1) return { reserved: 0 };
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const usage = collectOrderRecipeUsage(db, orderId);
+    for (const line of usage) {
+      db.prepare(`
+        UPDATE inventory_items
+        SET reserved_stock = COALESCE(reserved_stock, 0) + ?, updated_at = ?
+        WHERE id = ?
+      `).run(line.deductAmount, now, line.inventoryItemId);
+    }
+    return { reserved: usage.length };
+  },
+  releaseReservedStockForOrder: (orderId) => {
+    const db = getDb();
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+    if (!order || order.stock_posted === 1) return { released: 0 };
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const usage = collectOrderRecipeUsage(db, orderId);
+    for (const line of usage) {
+      db.prepare(`
+        UPDATE inventory_items
+        SET reserved_stock = MAX(0, COALESCE(reserved_stock, 0) - ?), updated_at = ?
+        WHERE id = ?
+      `).run(line.deductAmount, now, line.inventoryItemId);
+    }
+    return { released: usage.length };
+  },
   /**
    * Automatic recipe stock deduction when POS order is completed/paid
    */
@@ -3297,47 +4346,45 @@ const inventoryRepository = {
     if (order.stock_posted === 1) {
       return { success: true, skipped: true, reason: "Stock already posted for this sale" };
     }
-    const items = db.prepare("SELECT * FROM order_items WHERE order_id = ?").all(orderId);
+    const autoRow = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'recipe_auto_deduct'").get();
+    if (autoRow && String(autoRow.setting_value) === "0") {
+      return { success: true, skipped: true, reason: "Recipe auto-deduct disabled" };
+    }
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const deductions = [];
     const deductionTx = db.transaction(() => {
-      for (const it of items) {
-        const recipe = inventoryRepository.getRecipeForProduct(it.product_id, it.variation_id);
-        if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) continue;
-        const itemQty = it.quantity || 1;
-        for (const ing of recipe.ingredients) {
-          const wasteFactor = 1 + (ing.wastage_percentage || 0) / 100;
-          const deductAmount = parseFloat((ing.quantity_required * itemQty * wasteFactor).toFixed(3));
-          const rawItem = db.prepare("SELECT current_stock, cost_per_unit_cents FROM inventory_items WHERE id = ?").get(ing.inventory_item_id);
-          if (!rawItem) continue;
-          const prevStock = parseFloat(rawItem.current_stock);
-          const newStock = Math.max(0, parseFloat((prevStock - deductAmount).toFixed(3)));
-          db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = ? WHERE id = ?").run(newStock, now, ing.inventory_item_id);
-          db.prepare(`
-            INSERT INTO stock_movements (
-              id, branch_id, inventory_item_id, movement_type, quantity,
-              previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
-              reason, created_at
-            ) VALUES (?, ?, ?, 'SALE_DEDUCTION', ?, ?, ?, ?, 'ORDER', ?, ?, ?)
-          `).run(
-            uuid$8(),
-            order.branch_id,
-            ing.inventory_item_id,
-            deductAmount,
-            prevStock,
-            newStock,
-            rawItem.cost_per_unit_cents,
-            orderId,
-            `Auto recipe deduction for Order ${order.order_number} (${it.item_name} x${itemQty})`,
-            now
-          );
-          deductions.push({
-            itemId: ing.inventory_item_id,
-            itemName: ing.item_name,
-            deducted: deductAmount,
-            remainingStock: newStock
-          });
-        }
+      const usage = collectOrderRecipeUsage(db, orderId);
+      for (const line of usage) {
+        const rawItem = db.prepare("SELECT current_stock, reserved_stock, cost_per_unit_cents, avg_cost_cents FROM inventory_items WHERE id = ?").get(line.inventoryItemId);
+        if (!rawItem) continue;
+        const prevStock = parseFloat(rawItem.current_stock);
+        const newStock = Math.max(0, parseFloat((prevStock - line.deductAmount).toFixed(3)));
+        const reserved = Math.max(0, parseFloat((parseFloat(rawItem.reserved_stock || 0) - line.deductAmount).toFixed(3)));
+        db.prepare("UPDATE inventory_items SET current_stock = ?, reserved_stock = ?, updated_at = ? WHERE id = ?").run(newStock, reserved, now, line.inventoryItemId);
+        db.prepare(`
+          INSERT INTO stock_movements (
+            id, branch_id, inventory_item_id, movement_type, quantity,
+            previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
+            reason, created_at
+          ) VALUES (?, ?, ?, 'SALE_DEDUCTION', ?, ?, ?, ?, 'ORDER', ?, ?, ?)
+        `).run(
+          uuid$8(),
+          order.branch_id,
+          line.inventoryItemId,
+          line.deductAmount,
+          prevStock,
+          newStock,
+          line.unitCostCents,
+          orderId,
+          `Auto recipe deduction for Order ${order.order_number} (${line.orderItemName} x${line.itemQty})`,
+          now
+        );
+        deductions.push({
+          itemId: line.inventoryItemId,
+          itemName: line.itemName,
+          deducted: line.deductAmount,
+          remainingStock: newStock
+        });
       }
       db.prepare("UPDATE orders SET stock_posted = 1, updated_at = ? WHERE id = ?").run(now, orderId);
       return deductions;
@@ -3398,7 +4445,15 @@ const inventoryRepository = {
     const suppliers = db.prepare(`
       SELECT s.*,
              (SELECT COUNT(*) FROM purchase_orders WHERE supplier_id = s.id) as total_po_count,
-             (SELECT COALESCE(SUM(total_cents), 0) FROM purchase_orders WHERE supplier_id = s.id AND status = 'RECEIVED') as total_purchases_cents,
+             (SELECT COALESCE(SUM(
+               CASE WHEN poi.received_quantity IS NOT NULL
+                 THEN ROUND(poi.received_quantity * poi.unit_cost_cents)
+                 ELSE CASE WHEN po.status IN ('RECEIVED', 'PARTIAL') THEN poi.total_cents ELSE 0 END
+               END), 0)
+              FROM purchase_orders po
+              JOIN purchase_order_items poi ON poi.po_id = po.id
+              WHERE po.supplier_id = s.id) as total_purchases_cents,
+             (SELECT COALESCE(SUM(amount_cents), 0) FROM purchase_returns WHERE supplier_id = s.id) as total_returns_cents,
              (SELECT COALESCE(SUM(amount_cents), 0) FROM vendor_payments WHERE supplier_id = s.id) as total_paid_cents
       FROM suppliers s
       WHERE s.branch_id = ? AND s.is_active = 1
@@ -3406,7 +4461,7 @@ const inventoryRepository = {
     `).all(targetBranchId);
     return suppliers.map((sup) => ({
       ...sup,
-      outstandingBalanceCents: Math.max(0, (sup.total_purchases_cents || 0) - (sup.total_paid_cents || 0))
+      outstandingBalanceCents: Math.max(0, (sup.total_purchases_cents || 0) - (sup.total_paid_cents || 0) - (sup.total_returns_cents || 0))
     }));
   },
   createSupplier: (supplierData) => {
@@ -3416,8 +4471,8 @@ const inventoryRepository = {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const branchId = supplierData.branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     db.prepare(`
-      INSERT INTO suppliers (id, branch_id, company_name, contact_name, phone, email, address, is_active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+      INSERT INTO suppliers (id, branch_id, company_name, contact_name, phone, email, address, tax_id, payment_terms, is_active, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       id,
       branchId,
@@ -3426,6 +4481,8 @@ const inventoryRepository = {
       supplierData.phone || null,
       supplierData.email || null,
       supplierData.address || null,
+      supplierData.taxId || null,
+      supplierData.paymentTerms || null,
       now
     );
     logAudit$5(branchId, "CREATE_SUPPLIER", "SUPPLIER", id, { companyName: supplierData.companyName });
@@ -3442,6 +4499,8 @@ const inventoryRepository = {
           phone = COALESCE(?, phone),
           email = COALESCE(?, email),
           address = COALESCE(?, address),
+          tax_id = COALESCE(?, tax_id),
+          payment_terms = COALESCE(?, payment_terms),
           is_active = COALESCE(?, is_active)
       WHERE id = ?
     `).run(
@@ -3450,6 +4509,8 @@ const inventoryRepository = {
       supplierData.phone ?? null,
       supplierData.email ?? null,
       supplierData.address ?? null,
+      supplierData.taxId ?? null,
+      supplierData.paymentTerms ?? null,
       supplierData.isActive ?? null,
       id
     );
@@ -3503,7 +4564,10 @@ const inventoryRepository = {
     const status = autoReceive ? "RECEIVED" : "ORDERED";
     const generatedPoNumber = poNumber || `PO-${Date.now().toString().slice(-6)}`;
     const createPoTx = db.transaction(() => {
-      const totalCents = (items || []).reduce((acc, it) => acc + (it.totalCents || Math.round(it.quantity * it.unitCostCents)), 0);
+      const totalCents = (items || []).reduce((acc, it) => {
+        const line = it.totalCents || Math.round(it.quantity * it.unitCostCents);
+        return acc + line + parseInt(it.taxCents || 0, 10) - parseInt(it.discountCents || 0, 10);
+      }, 0);
       db.prepare(`
         INSERT INTO purchase_orders (id, branch_id, supplier_id, po_number, status, total_cents, notes, created_at, received_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -3520,43 +4584,38 @@ const inventoryRepository = {
       );
       if (Array.isArray(items)) {
         for (const it of items) {
-          const itemTotal = it.totalCents || Math.round(it.quantity * it.unitCostCents);
+          const qty = parseFloat(it.quantity);
+          const discountCents = parseInt(it.discountCents || 0, 10);
+          const taxCents = parseInt(it.taxCents || 0, 10);
+          const itemTotal2 = it.totalCents || Math.round(qty * it.unitCostCents) - discountCents + taxCents;
+          const receivedQty = autoReceive ? qty : 0;
           db.prepare(`
-            INSERT INTO purchase_order_items (id, po_id, inventory_item_id, quantity, unit_cost_cents, total_cents)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(uuid$8(), id, it.inventoryItemId, parseFloat(it.quantity), parseInt(it.unitCostCents, 10), itemTotal);
+            INSERT INTO purchase_order_items (
+              id, po_id, inventory_item_id, quantity, unit_cost_cents, total_cents,
+              discount_cents, tax_cents, received_quantity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            uuid$8(),
+            id,
+            it.inventoryItemId,
+            qty,
+            parseInt(it.unitCostCents, 10),
+            itemTotal2,
+            discountCents,
+            taxCents,
+            receivedQty
+          );
           if (autoReceive) {
-            const rawItem = db.prepare("SELECT current_stock FROM inventory_items WHERE id = ?").get(it.inventoryItemId);
-            if (rawItem) {
-              const prev = parseFloat(rawItem.current_stock);
-              const added = parseFloat(it.quantity);
-              const next = prev + added;
-              db.prepare(`
-                UPDATE inventory_items
-                SET current_stock = ?,
-                    cost_per_unit_cents = ?,
-                    updated_at = ?
-                WHERE id = ?
-              `).run(next, parseInt(it.unitCostCents, 10), now, it.inventoryItemId);
-              db.prepare(`
-                INSERT INTO stock_movements (
-                  id, branch_id, inventory_item_id, movement_type, quantity,
-                  previous_stock, new_stock, unit_cost_cents, reference_type, reference_id,
-                  reason, created_at
-                ) VALUES (?, ?, ?, 'PURCHASE', ?, ?, ?, ?, 'PO', ?, ?, ?)
-              `).run(
-                uuid$8(),
-                targetBranchId,
-                it.inventoryItemId,
-                added,
-                prev,
-                next,
-                parseInt(it.unitCostCents, 10),
-                id,
-                `Goods Received for PO ${generatedPoNumber}`,
-                now
-              );
-            }
+            postInboundStock(db, {
+              branchId: targetBranchId,
+              itemId: it.inventoryItemId,
+              qty,
+              unitCost: it.unitCostCents,
+              now,
+              referenceType: "PO",
+              referenceId: id,
+              reason: `Goods Received for PO ${generatedPoNumber}`
+            });
           }
         }
       }
@@ -3568,6 +4627,105 @@ const inventoryRepository = {
       return db.prepare("SELECT * FROM purchase_orders WHERE id = ?").get(id);
     });
     return createPoTx();
+  },
+  receivePurchaseOrder: ({ poId, items, userId }) => {
+    const db = getDb();
+    const po = db.prepare("SELECT * FROM purchase_orders WHERE id = ?").get(poId);
+    if (!po) throw new Error("Purchase order not found.");
+    if (po.status === "CANCELLED") throw new Error("Cannot receive a cancelled purchase order.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const receiveTx = db.transaction(() => {
+      const lines = db.prepare("SELECT * FROM purchase_order_items WHERE po_id = ?").all(poId);
+      const requested = Array.isArray(items) && items.length ? items : lines.map((l) => ({ itemId: l.id, quantity: Math.max(0, parseFloat(l.quantity) - parseFloat(l.received_quantity || 0)) }));
+      for (const req of requested) {
+        const line = lines.find((l) => l.id === req.itemId || l.inventory_item_id === req.inventoryItemId);
+        if (!line) continue;
+        const remaining = Math.max(0, parseFloat(line.quantity) - parseFloat(line.received_quantity || 0));
+        const qty = Math.min(remaining, parseFloat(req.quantity || remaining));
+        if (qty <= 0) continue;
+        const nextReceived = parseFloat((parseFloat(line.received_quantity || 0) + qty).toFixed(3));
+        db.prepare("UPDATE purchase_order_items SET received_quantity = ? WHERE id = ?").run(nextReceived, line.id);
+        line.received_quantity = nextReceived;
+        postInboundStock(db, {
+          branchId: po.branch_id,
+          itemId: line.inventory_item_id,
+          qty,
+          unitCost: line.unit_cost_cents,
+          now,
+          referenceType: "GRN",
+          referenceId: poId,
+          reason: `GRN posted for ${po.po_number}`
+        });
+      }
+      const updated = db.prepare("SELECT * FROM purchase_order_items WHERE po_id = ?").all(poId);
+      const allReceived = updated.every((l) => parseFloat(l.received_quantity || 0) >= parseFloat(l.quantity));
+      const anyReceived = updated.some((l) => parseFloat(l.received_quantity || 0) > 0);
+      const status = allReceived ? "RECEIVED" : anyReceived ? "PARTIAL" : po.status;
+      db.prepare("UPDATE purchase_orders SET status = ?, received_at = COALESCE(received_at, ?) WHERE id = ?").run(status, now, poId);
+      logAudit$5(po.branch_id, "RECEIVE_PURCHASE", "PURCHASE_ORDER", poId, { status, userId });
+      return inventoryRepository.getPurchaseOrders({ branchId: po.branch_id }).find((o) => o.id === poId);
+    });
+    return receiveTx();
+  },
+  returnPurchaseItems: ({ poId, items, reason, userId }) => {
+    const db = getDb();
+    const po = db.prepare("SELECT * FROM purchase_orders WHERE id = ?").get(poId);
+    if (!po) throw new Error("Purchase order not found.");
+    if (!Array.isArray(items) || items.length === 0) throw new Error("Select items to return.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const returnTx = db.transaction(() => {
+      const returnId = uuid$8();
+      let amount = 0;
+      db.prepare(`
+        INSERT INTO purchase_returns (id, branch_id, supplier_id, po_id, amount_cents, reason, created_at)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
+      `).run(returnId, po.branch_id, po.supplier_id, poId, reason || "Purchase return", now);
+      for (const it of items) {
+        const line = db.prepare("SELECT * FROM purchase_order_items WHERE po_id = ? AND inventory_item_id = ?").get(poId, it.inventoryItemId);
+        const qty = parseFloat(it.quantity);
+        if (!qty || qty <= 0) continue;
+        const received = parseFloat((line == null ? void 0 : line.received_quantity) || 0);
+        if (qty > received) throw new Error("Cannot return more than received quantity.");
+        const cost = parseInt((line == null ? void 0 : line.unit_cost_cents) || it.unitCostCents || 0, 10);
+        amount += Math.round(qty * cost);
+        db.prepare(`
+          INSERT INTO purchase_return_items (id, return_id, inventory_item_id, quantity, unit_cost_cents)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(uuid$8(), returnId, it.inventoryItemId, qty, cost);
+        db.prepare("UPDATE purchase_order_items SET received_quantity = received_quantity - ? WHERE id = ?").run(qty, line.id);
+        const rawItem = db.prepare("SELECT current_stock, cost_per_unit_cents FROM inventory_items WHERE id = ?").get(it.inventoryItemId);
+        if (rawItem) {
+          const prev = parseFloat(rawItem.current_stock);
+          const next = Math.max(0, parseFloat((prev - qty).toFixed(3)));
+          db.prepare("UPDATE inventory_items SET current_stock = ?, updated_at = ? WHERE id = ?").run(next, now, it.inventoryItemId);
+          db.prepare(`
+            INSERT INTO stock_movements (
+              id, branch_id, inventory_item_id, movement_type, quantity,
+              previous_stock, new_stock, unit_cost_cents, reference_type, reference_id, reason, created_at
+            ) VALUES (?, ?, ?, 'RETURN', ?, ?, ?, ?, 'PO_RETURN', ?, ?, ?)
+          `).run(uuid$8(), po.branch_id, it.inventoryItemId, qty, prev, next, cost, returnId, reason || `Return against ${po.po_number}`, now);
+        }
+      }
+      db.prepare("UPDATE purchase_returns SET amount_cents = ? WHERE id = ?").run(amount, returnId);
+      const remaining = db.prepare("SELECT * FROM purchase_order_items WHERE po_id = ?").all(poId);
+      const anyLeft = remaining.some((l) => parseFloat(l.received_quantity || 0) > 0);
+      const allLeft = remaining.every((l) => parseFloat(l.received_quantity || 0) >= parseFloat(l.quantity));
+      db.prepare("UPDATE purchase_orders SET status = ? WHERE id = ?").run(allLeft ? "RECEIVED" : anyLeft ? "PARTIAL" : "ORDERED", poId);
+      logAudit$5(po.branch_id, "PURCHASE_RETURN", "PURCHASE_ORDER", poId, { returnId, amount, userId });
+      return { id: returnId, amountCents: amount };
+    });
+    return returnTx();
+  },
+  getVendorStatement: ({ supplierId, branchId }) => {
+    var _a;
+    const db = getDb();
+    const supplier = db.prepare("SELECT * FROM suppliers WHERE id = ?").get(supplierId);
+    if (!supplier) throw new Error("Supplier not found.");
+    const pos = inventoryRepository.getPurchaseOrders({ branchId: branchId || supplier.branch_id, supplierId });
+    const payments = db.prepare("SELECT * FROM vendor_payments WHERE supplier_id = ? ORDER BY payment_date DESC").all(supplierId);
+    const returns = db.prepare("SELECT * FROM purchase_returns WHERE supplier_id = ? ORDER BY created_at DESC").all(supplierId);
+    const outstanding = ((_a = inventoryRepository.getSuppliers(supplier.branch_id).find((s) => s.id === supplierId)) == null ? void 0 : _a.outstandingBalanceCents) || 0;
+    return { supplier, purchaseOrders: pos, payments, returns, outstandingBalanceCents: outstanding };
   },
   recordVendorPayment: ({ branchId, supplierId, poId, amountCents, paymentMethod, referenceNumber, notes }) => {
     var _a;
@@ -3634,34 +4792,50 @@ const inventoryRepository = {
     query += " ORDER BY e.expense_date DESC, e.created_at DESC";
     return db.prepare(query).all(...queryParams);
   },
-  createExpense: ({ branchId, categoryId, amountCents, paymentMethod, payee, description, expenseDate, userId }) => {
-    var _a;
+  createExpense: ({ branchId, categoryId, amountCents, paymentMethod, payee, description, expenseDate, userId, referenceNumber, attachmentUrl, isRecurring, recurrence }) => {
+    var _a, _b;
     const db = getDb();
     const targetBranchId = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     const id = uuid$8();
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
+    const amount = parseInt(amountCents, 10);
+    const threshold = parseInt(
+      ((_b = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'expense_approval_threshold_cents'").get()) == null ? void 0 : _b.setting_value) || "50000",
+      10
+    );
+    const needsApproval = amount >= threshold;
+    const status = needsApproval ? "PENDING" : "APPROVED";
     db.prepare(`
       INSERT INTO expenses (
         id, branch_id, category_id, amount_cents, payment_method,
-        payee, description, recorded_by_user_id, expense_date, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        payee, description, recorded_by_user_id, expense_date, created_at,
+        status, reference_number, attachment_url, is_recurring, recurrence,
+        approved_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       targetBranchId,
       categoryId,
-      parseInt(amountCents, 10),
+      amount,
       paymentMethod || "CASH",
       payee || null,
       description || null,
       userId || (session == null ? void 0 : session.id) || null,
       expenseDate || now,
-      now
+      now,
+      status,
+      referenceNumber || null,
+      attachmentUrl || null,
+      isRecurring ? 1 : 0,
+      recurrence || null,
+      needsApproval ? null : userId || (session == null ? void 0 : session.id) || null
     );
     logAudit$5(targetBranchId, "RECORD_EXPENSE", "EXPENSE", id, {
-      amountCents,
+      amountCents: amount,
       categoryId,
-      payee
+      payee,
+      status
     });
     return db.prepare(`
       SELECT e.*, c.name as category_name
@@ -3670,13 +4844,33 @@ const inventoryRepository = {
       WHERE e.id = ?
     `).get(id);
   },
+  approveExpense: (id, userId) => {
+    const db = getDb();
+    const row = db.prepare("SELECT * FROM expenses WHERE id = ?").get(id);
+    if (!row) throw new Error("Expense not found.");
+    if (row.status === "CANCELLED") throw new Error("Cancelled expenses cannot be approved.");
+    db.prepare("UPDATE expenses SET status = 'APPROVED', approved_by_user_id = ? WHERE id = ?").run(userId || null, id);
+    logAudit$5(row.branch_id, "APPROVE_EXPENSE", "EXPENSE", id, {});
+    return db.prepare(`
+      SELECT e.*, c.name as category_name FROM expenses e JOIN expense_categories c ON e.category_id = c.id WHERE e.id = ?
+    `).get(id);
+  },
+  cancelExpense: (id, reason, userId) => {
+    const db = getDb();
+    const row = db.prepare("SELECT * FROM expenses WHERE id = ?").get(id);
+    if (!row) throw new Error("Expense not found.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    db.prepare("UPDATE expenses SET status = 'CANCELLED', cancelled_at = ?, cancel_reason = ? WHERE id = ?").run(now, reason || "Cancelled", id);
+    logAudit$5(row.branch_id, "CANCEL_EXPENSE", "EXPENSE", id, { reason, userId });
+    return true;
+  },
   getExpenseSummary: (params = {}) => {
     var _a;
     const db = getDb();
     const branchId = params.branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     const totalCents = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total FROM expenses
-      WHERE branch_id = ?
+      WHERE branch_id = ? AND COALESCE(status, 'APPROVED') != 'CANCELLED'
     `).get(branchId).total;
     const categoryBreakdown = db.prepare(`
       SELECT c.name as category_name, COALESCE(SUM(e.amount_cents), 0) as amount_cents, COUNT(e.id) as count
@@ -3699,7 +4893,7 @@ function resolveValidBranchId$5(db, branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
     if (b) return b.id;
@@ -3708,7 +4902,7 @@ function resolveValidBranchId$5(db, branchId) {
   return (fallback == null ? void 0 : fallback.id) || null;
 }
 function resolveValidUserId$4(db, userId) {
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.id) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
     if (u) return u.id;
@@ -3745,7 +4939,7 @@ const customerRepository = {
     let sql = `
       SELECT id, branch_id, name, phone, email, address, tag,
              credit_balance_cents, loyalty_points, order_count, total_spent_cents,
-             notes, birth_date, is_active, created_at, updated_at
+             notes, birth_date, is_active, discount_percent, created_at, updated_at
       FROM customers
       WHERE (branch_id = ? OR branch_id IS NULL)
     `;
@@ -3780,7 +4974,50 @@ const customerRepository = {
       ORDER BY created_at DESC
       LIMIT 20
     `).all(id);
-    return { ...customer, recentOrders, loyaltyHistory };
+    const lastOrder = recentOrders[0] || null;
+    const avgOrderValueCents = customer.order_count ? Math.round((customer.total_spent_cents || 0) / customer.order_count) : 0;
+    const favouriteProducts = db.prepare(`
+      SELECT p.id, p.name, SUM(oi.quantity) as times_ordered
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN products p ON oi.product_id = p.id
+      WHERE o.customer_id = ? AND o.status NOT IN ('CANCELLED', 'DRAFT')
+      GROUP BY p.id, p.name
+      ORDER BY times_ordered DESC
+      LIMIT 5
+    `).all(id);
+    const favouriteCategories = db.prepare(`
+      SELECT c.id, c.name, SUM(oi.quantity) as times_ordered
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN products p ON oi.product_id = p.id
+      JOIN categories c ON p.category_id = c.id
+      WHERE o.customer_id = ? AND o.status NOT IN ('CANCELLED', 'DRAFT')
+      GROUP BY c.id, c.name
+      ORDER BY times_ordered DESC
+      LIMIT 5
+    `).all(id);
+    let notifications = [];
+    try {
+      notifications = db.prepare(`
+        SELECT * FROM customer_notifications
+        WHERE customer_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+      `).all(id);
+    } catch (e) {
+    }
+    return {
+      ...customer,
+      recentOrders,
+      loyaltyHistory,
+      loyalty_transactions: loyaltyHistory,
+      last_order_at: (lastOrder == null ? void 0 : lastOrder.created_at) || null,
+      avg_order_value_cents: avgOrderValueCents,
+      favouriteProducts,
+      favouriteCategories,
+      notifications
+    };
   },
   createCustomer: ({ branchId, name, phone, email, address, tag = "REGULAR", birthDate = null, notes = null, imageUrl = null }) => {
     const db = getDb();
@@ -3817,7 +5054,7 @@ const customerRepository = {
     enqueueOutbox("CUSTOMER", id, "UPSERT", { id, name, phone });
     return customerRepository.getCustomerById(id);
   },
-  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive, imageUrl }) => {
+  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive, imageUrl, discountPercent }) => {
     const db = getDb();
     const existing = db.prepare("SELECT * FROM customers WHERE id = ?").get(id);
     if (!existing) throw new Error("Customer not found.");
@@ -3839,6 +5076,7 @@ const customerRepository = {
           notes = ?,
           image_url = ?,
           is_active = ?,
+          discount_percent = ?,
           updated_at = ?
       WHERE id = ?
     `).run(
@@ -3851,6 +5089,7 @@ const customerRepository = {
       notes !== void 0 ? notes ? notes.trim() : null : existing.notes,
       imageUrl !== void 0 ? imageUrl : existing.image_url,
       isActive !== void 0 ? isActive ? 1 : 0 : existing.is_active,
+      discountPercent !== void 0 ? Number(discountPercent) || 0 : existing.discount_percent || 0,
       now,
       id
     );
@@ -3868,7 +5107,20 @@ const customerRepository = {
       const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(customerId);
       if (!customer) throw new Error("Customer not found.");
       const currentPoints = customer.loyalty_points || 0;
-      const delta = parseInt(pointsChanged, 10) || 0;
+      let delta = parseInt(pointsChanged, 10) || 0;
+      if (String(transactionType).toUpperCase() === "REDEEM" && delta > 0) {
+        delta = -delta;
+      }
+      if (String(transactionType).toUpperCase() === "REDEEM") {
+        const minRow = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'loyalty_redeem_min'").get();
+        const minPts = parseInt(minRow == null ? void 0 : minRow.setting_value, 10) || 0;
+        if (Math.abs(delta) < minPts) {
+          throw new Error(`Redeem at least ${minPts} loyalty points.`);
+        }
+        if (currentPoints < Math.abs(delta)) {
+          throw new Error("Not enough loyalty points to redeem.");
+        }
+      }
       const balanceAfter = Math.max(0, currentPoints + delta);
       const txId = uuid$7();
       const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -3920,9 +5172,508 @@ const customerRepository = {
       WHERE branch_id = ? OR branch_id IS NULL
     `).get(validBranchId);
     return stats;
+  },
+  logNotification: ({ customerId, orderId = null, channel = "IN_APP", message }) => {
+    if (!customerId || !message) return null;
+    const db = getDb();
+    const id = uuid$7();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    try {
+      db.prepare(`
+        INSERT INTO customer_notifications (id, customer_id, order_id, channel, message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, customerId, orderId, channel, message, now);
+    } catch (e) {
+      return null;
+    }
+    return { id, customerId, message, created_at: now };
+  },
+  mergeCustomers: ({ keepId, absorbId }) => {
+    const db = getDb();
+    if (!keepId || !absorbId || keepId === absorbId) {
+      throw new Error("Select two different customer profiles to merge.");
+    }
+    const keep = db.prepare("SELECT * FROM customers WHERE id = ?").get(keepId);
+    const absorb = db.prepare("SELECT * FROM customers WHERE id = ?").get(absorbId);
+    if (!keep || !absorb) throw new Error("One of the customer profiles was not found.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const mergeTx = db.transaction(() => {
+      db.prepare("UPDATE orders SET customer_id = ? WHERE customer_id = ?").run(keepId, absorbId);
+      try {
+        db.prepare("UPDATE loyalty_transactions SET customer_id = ? WHERE customer_id = ?").run(keepId, absorbId);
+      } catch (e) {
+      }
+      try {
+        db.prepare("UPDATE reservations SET customer_id = ? WHERE customer_id = ?").run(keepId, absorbId);
+      } catch (e) {
+      }
+      try {
+        db.prepare("UPDATE deliveries SET customer_name = ?, customer_phone = ? WHERE customer_phone = ?").run(
+          keep.name,
+          keep.phone,
+          absorb.phone
+        );
+      } catch (e) {
+      }
+      try {
+        db.prepare("UPDATE customer_notifications SET customer_id = ? WHERE customer_id = ?").run(keepId, absorbId);
+      } catch (e) {
+      }
+      try {
+        db.prepare("UPDATE coupons SET customer_id = ? WHERE customer_id = ?").run(keepId, absorbId);
+      } catch (e) {
+      }
+      db.prepare(`
+        UPDATE customers
+        SET loyalty_points = COALESCE(loyalty_points, 0) + ?,
+            total_spent_cents = COALESCE(total_spent_cents, 0) + ?,
+            order_count = COALESCE(order_count, 0) + ?,
+            credit_balance_cents = COALESCE(credit_balance_cents, 0) + ?,
+            notes = TRIM(COALESCE(notes, '') || char(10) || 'Merged profile: ' || ? || ' (' || COALESCE(?, '') || ')'),
+            address = COALESCE(NULLIF(address, ''), ?),
+            email = COALESCE(NULLIF(email, ''), ?),
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        absorb.loyalty_points || 0,
+        absorb.total_spent_cents || 0,
+        absorb.order_count || 0,
+        absorb.credit_balance_cents || 0,
+        absorb.name,
+        absorb.phone,
+        absorb.address,
+        absorb.email,
+        now,
+        keepId
+      );
+      db.prepare("UPDATE customers SET is_active = 0, phone = ?, updated_at = ? WHERE id = ?").run(`${absorb.phone || "merged"}-merged-${Date.now().toString().slice(-4)}`, now, absorbId);
+      logAudit$4(keep.branch_id, "MERGE_CUSTOMERS", "CUSTOMER", keepId, {
+        absorbedId: absorbId,
+        absorbedName: absorb.name,
+        absorbedPhone: absorb.phone
+      });
+      return customerRepository.getCustomerById(keepId);
+    });
+    return mergeTx();
   }
 };
 function uuid$6() {
+  return crypto$1.randomUUID();
+}
+function resolveValidBranchId$4(db, branchId) {
+  if (branchId) {
+    const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
+    if (b) return b.id;
+  }
+  const session = authRepository.getCurrentSession();
+  if (session == null ? void 0 : session.branchId) {
+    const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
+    if (b) return b.id;
+  }
+  const fallback = db.prepare("SELECT id FROM branches LIMIT 1").get();
+  return (fallback == null ? void 0 : fallback.id) || null;
+}
+function padTime(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (s.length === 5) return s;
+  if (s.length >= 8) return s.slice(0, 5);
+  return s;
+}
+function nowParts() {
+  const d = /* @__PURE__ */ new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return {
+    iso: d.toISOString(),
+    date: d.toISOString().slice(0, 10),
+    time: `${hh}:${mm}`,
+    day: String(d.getDay())
+  };
+}
+function inDateWindow(coupon, now) {
+  const start = coupon.start_date ? String(coupon.start_date) : null;
+  const end = coupon.end_date ? String(coupon.end_date) : null;
+  if (start) {
+    const cmp = start.length > 10 ? now.iso : now.date;
+    const startKey = start.length > 10 ? start : start.slice(0, 10);
+    if (cmp < startKey) return `not active yet (starts ${start.slice(0, 16)})`;
+  }
+  if (end) {
+    const cmp = end.length > 10 ? now.iso : now.date;
+    const endKey = end.length > 10 ? end : end.slice(0, 10);
+    if (cmp > endKey) return `has expired (ended ${end.slice(0, 16)})`;
+  }
+  return null;
+}
+function inTimeWindow(coupon, now) {
+  const start = padTime(coupon.start_time);
+  const end = padTime(coupon.end_time);
+  if (!start && !end) return null;
+  const t = now.time;
+  if (start && end && start > end) {
+    if (!(t >= start || t <= end)) return `only valid ${start}–${end}`;
+    return null;
+  }
+  if (start && t < start) return `only valid from ${start}`;
+  if (end && t > end) return `only valid until ${end}`;
+  return null;
+}
+function inDaysWindow(coupon, now) {
+  if (!coupon.days_of_week) return null;
+  const days = String(coupon.days_of_week).split(",").map((d) => d.trim()).filter(Boolean);
+  if (days.length === 0) return null;
+  if (!days.includes(now.day)) return "not valid today";
+  return null;
+}
+function eligibleItems(coupon, items = []) {
+  const list = Array.isArray(items) ? items : [];
+  const applies = coupon.applies_to || "ALL";
+  return list.filter((it) => {
+    if (it.isDiscountEligible === 0 || it.is_discount_eligible === 0) return false;
+    if (applies === "CATEGORY") return (it.categoryId || it.category_id) === coupon.target_id;
+    if (applies === "PRODUCT") return (it.productId || it.product_id) === coupon.target_id;
+    if (applies === "COMBO") return (it.comboId || it.combo_id) === coupon.target_id;
+    return true;
+  });
+}
+function itemQty(it) {
+  return Math.max(0, parseInt(it.quantity, 10) || 0);
+}
+function itemUnit(it) {
+  return Math.max(0, parseInt(it.unitPriceCents ?? it.unit_price_cents, 10) || 0);
+}
+function itemTotal(it) {
+  const explicit = parseInt(it.totalCents ?? it.total_cents, 10);
+  if (!Number.isNaN(explicit) && explicit > 0) return explicit;
+  return itemQty(it) * itemUnit(it);
+}
+function computeDiscountCents(coupon, { orderTotalCents = 0, items = [] }) {
+  const eligible = eligibleItems(coupon, items);
+  const scopedSubtotal = eligible.length > 0 ? eligible.reduce((sum, it) => sum + itemTotal(it), 0) : coupon.applies_to && coupon.applies_to !== "ALL" ? 0 : orderTotalCents;
+  const base = coupon.applies_to && coupon.applies_to !== "ALL" ? scopedSubtotal : orderTotalCents || scopedSubtotal;
+  if (coupon.discount_type === "BOGO") {
+    const buyQty = Math.max(1, parseInt(coupon.buy_qty, 10) || 1);
+    const getQty = Math.max(1, parseInt(coupon.get_qty, 10) || 1);
+    const buyId = coupon.target_id;
+    const getId = coupon.get_product_id || coupon.target_id;
+    const buyCount = items.filter((it) => (it.productId || it.product_id) === buyId).reduce((s, it) => s + itemQty(it), 0);
+    const getLines = items.filter((it) => (it.productId || it.product_id) === getId);
+    const getCount = getLines.reduce((s, it) => s + itemQty(it), 0);
+    const freeUnits = Math.min(Math.floor(buyCount / buyQty) * getQty, getCount);
+    if (freeUnits <= 0) return 0;
+    const cheapest = [...getLines].sort((a, b) => itemUnit(a) - itemUnit(b))[0];
+    return freeUnits * itemUnit(cheapest);
+  }
+  let discountCents = 0;
+  if (coupon.discount_type === "PERCENTAGE") {
+    discountCents = Math.round(base * coupon.discount_value / 100);
+  } else {
+    discountCents = Math.min(base, coupon.discount_value);
+  }
+  if (coupon.max_discount_cents && discountCents > coupon.max_discount_cents) {
+    discountCents = coupon.max_discount_cents;
+  }
+  return Math.max(0, Math.min(discountCents, orderTotalCents || base || discountCents));
+}
+function couponRowPayload(data, existing = {}) {
+  return {
+    title: data.title !== void 0 ? String(data.title).trim() : existing.title,
+    discountType: data.discountType !== void 0 ? data.discountType : existing.discount_type,
+    discountValue: data.discountValue !== void 0 ? parseInt(data.discountValue, 10) : existing.discount_value,
+    minOrderCents: data.minOrderCents !== void 0 ? parseInt(data.minOrderCents, 10) || 0 : existing.min_order_cents,
+    maxDiscountCents: data.maxDiscountCents !== void 0 ? data.maxDiscountCents ? parseInt(data.maxDiscountCents, 10) : null : existing.max_discount_cents,
+    startDate: data.startDate !== void 0 ? data.startDate || null : existing.start_date,
+    endDate: data.endDate !== void 0 ? data.endDate || null : existing.end_date,
+    usageLimit: data.usageLimit !== void 0 ? parseInt(data.usageLimit, 10) || 0 : existing.usage_limit,
+    isActive: data.isActive !== void 0 ? data.isActive ? 1 : 0 : existing.is_active,
+    customerId: data.customerId !== void 0 || data.customer_id !== void 0 ? data.customerId || data.customer_id || null : existing.customer_id,
+    appliesTo: data.appliesTo !== void 0 ? data.appliesTo : existing.applies_to || "ALL",
+    targetId: data.targetId !== void 0 ? data.targetId || null : existing.target_id,
+    buyQty: data.buyQty !== void 0 ? parseInt(data.buyQty, 10) || 0 : existing.buy_qty || 0,
+    getQty: data.getQty !== void 0 ? parseInt(data.getQty, 10) || 0 : existing.get_qty || 0,
+    getProductId: data.getProductId !== void 0 ? data.getProductId || null : existing.get_product_id,
+    startTime: data.startTime !== void 0 ? data.startTime || null : existing.start_time,
+    endTime: data.endTime !== void 0 ? data.endTime || null : existing.end_time,
+    daysOfWeek: data.daysOfWeek !== void 0 ? data.daysOfWeek || null : existing.days_of_week,
+    customerSegment: data.customerSegment !== void 0 ? data.customerSegment || "ALL" : existing.customer_segment || "ALL",
+    isAutoApply: data.isAutoApply !== void 0 ? data.isAutoApply ? 1 : 0 : existing.is_auto_apply || 0,
+    perCustomerLimit: data.perCustomerLimit !== void 0 ? parseInt(data.perCustomerLimit, 10) || 0 : existing.per_customer_limit || 0
+  };
+}
+function assertCouponUsable(db, coupon, { customerId, orderTotalCents = 0, items = [], now = nowParts() }) {
+  var _a;
+  if (!coupon.is_active) throw new Error(`Promo code "${coupon.code}" is no longer active.`);
+  const dateErr = inDateWindow(coupon, now);
+  if (dateErr) throw new Error(`Promo code "${coupon.code}" ${dateErr}.`);
+  const timeErr = inTimeWindow(coupon, now);
+  if (timeErr) throw new Error(`Promo code "${coupon.code}" ${timeErr}.`);
+  const dayErr = inDaysWindow(coupon, now);
+  if (dayErr) throw new Error(`Promo code "${coupon.code}" is ${dayErr}.`);
+  if (coupon.usage_limit > 0 && coupon.times_used >= coupon.usage_limit) {
+    throw new Error(`Promo code "${coupon.code}" has reached its maximum usage limit.`);
+  }
+  if (coupon.customer_id && customerId && coupon.customer_id !== customerId) {
+    throw new Error(`Promo code "${coupon.code}" is assigned to another customer.`);
+  }
+  if (coupon.customer_id && !customerId) {
+    throw new Error(`Promo code "${coupon.code}" requires the assigned customer on this order.`);
+  }
+  const segment = coupon.customer_segment && coupon.customer_segment !== "ALL" ? coupon.customer_segment : null;
+  if (segment) {
+    if (!customerId) throw new Error(`Promo code "${coupon.code}" is for ${segment} customers only.`);
+    const customer = db.prepare("SELECT tag FROM customers WHERE id = ?").get(customerId);
+    if (!customer || String(customer.tag || "").toUpperCase() !== String(segment).toUpperCase()) {
+      throw new Error(`Promo code "${coupon.code}" is for ${segment} customers only.`);
+    }
+  }
+  if (coupon.per_customer_limit > 0) {
+    if (!customerId) throw new Error(`Promo code "${coupon.code}" requires a customer on this order.`);
+    const used = ((_a = db.prepare(
+      "SELECT COUNT(*) as n FROM coupon_redemptions WHERE coupon_id = ? AND customer_id = ?"
+    ).get(coupon.id, customerId)) == null ? void 0 : _a.n) || 0;
+    if (used >= coupon.per_customer_limit) {
+      throw new Error(`Promo code "${coupon.code}" has already been used by this customer.`);
+    }
+  }
+  if (orderTotalCents < (coupon.min_order_cents || 0)) {
+    const minDollars = ((coupon.min_order_cents || 0) / 100).toFixed(2);
+    throw new Error(`Coupon "${coupon.code}" requires a minimum spend of $${minDollars}.`);
+  }
+  const discountCents = computeDiscountCents(coupon, { orderTotalCents, items });
+  if (discountCents <= 0) {
+    if (coupon.discount_type === "BOGO") {
+      throw new Error(`Promo "${coupon.code}" needs ${coupon.buy_qty} qualifying items in the cart.`);
+    }
+    if (coupon.applies_to && coupon.applies_to !== "ALL") {
+      throw new Error(`Promo "${coupon.code}" does not apply to items on this order.`);
+    }
+  }
+  return discountCents;
+}
+const couponRepository = {
+  getCoupons: (branchId) => {
+    const db = getDb();
+    const validBranchId = resolveValidBranchId$4(db, branchId);
+    return db.prepare(`
+      SELECT * FROM coupons
+      WHERE branch_id = ? OR branch_id IS NULL
+      ORDER BY is_active DESC, created_at DESC
+    `).all(validBranchId);
+  },
+  createCoupon: (data) => {
+    var _a;
+    const db = getDb();
+    const validBranchId = resolveValidBranchId$4(db, data.branchId);
+    const id = uuid$6();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const cleanCode = data.code.trim().toUpperCase();
+    const row = couponRowPayload(data, {
+      discount_type: "PERCENTAGE",
+      discount_value: 10,
+      min_order_cents: 0,
+      max_discount_cents: null,
+      usage_limit: 0,
+      is_active: 1,
+      applies_to: "ALL",
+      customer_segment: "ALL"
+    });
+    const existing = db.prepare("SELECT id FROM coupons WHERE code = ?").get(cleanCode);
+    if (existing) throw new Error(`Coupon code "${cleanCode}" already exists.`);
+    db.prepare(`
+      INSERT INTO coupons (
+        id, branch_id, code, title, discount_type, discount_value,
+        min_order_cents, max_discount_cents, start_date, end_date,
+        usage_limit, times_used, is_active, customer_id, applies_to, target_id,
+        buy_qty, get_qty, get_product_id, start_time, end_time, days_of_week,
+        customer_segment, is_auto_apply, per_customer_limit, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      validBranchId,
+      cleanCode,
+      row.title,
+      row.discountType || "PERCENTAGE",
+      row.discountValue || 0,
+      row.minOrderCents || 0,
+      row.maxDiscountCents,
+      row.startDate,
+      row.endDate,
+      row.usageLimit || 0,
+      row.isActive,
+      row.customerId,
+      row.appliesTo || "ALL",
+      row.targetId,
+      row.buyQty || 0,
+      row.getQty || 0,
+      row.getProductId,
+      row.startTime,
+      row.endTime,
+      row.daysOfWeek,
+      row.customerSegment || "ALL",
+      row.isAutoApply ? 1 : 0,
+      row.perCustomerLimit || 0,
+      now,
+      now
+    );
+    writeAudit({
+      branchId: validBranchId,
+      userId: (_a = authRepository.getCurrentSession()) == null ? void 0 : _a.id,
+      action: "CREATE_COUPON",
+      entityType: "COUPON",
+      entityId: id,
+      details: { code: cleanCode, title: row.title, discountType: row.discountType }
+    });
+    return db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
+  },
+  updateCoupon: (id, data) => {
+    var _a;
+    const db = getDb();
+    const existing = db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
+    if (!existing) throw new Error("Coupon not found.");
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const row = couponRowPayload(data, existing);
+    db.prepare(`
+      UPDATE coupons
+      SET title = ?,
+          discount_type = ?,
+          discount_value = ?,
+          min_order_cents = ?,
+          max_discount_cents = ?,
+          start_date = ?,
+          end_date = ?,
+          usage_limit = ?,
+          is_active = ?,
+          customer_id = ?,
+          applies_to = ?,
+          target_id = ?,
+          buy_qty = ?,
+          get_qty = ?,
+          get_product_id = ?,
+          start_time = ?,
+          end_time = ?,
+          days_of_week = ?,
+          customer_segment = ?,
+          is_auto_apply = ?,
+          per_customer_limit = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      row.title,
+      row.discountType,
+      row.discountValue,
+      row.minOrderCents,
+      row.maxDiscountCents,
+      row.startDate,
+      row.endDate,
+      row.usageLimit,
+      row.isActive,
+      row.customerId,
+      row.appliesTo,
+      row.targetId,
+      row.buyQty,
+      row.getQty,
+      row.getProductId,
+      row.startTime,
+      row.endTime,
+      row.daysOfWeek,
+      row.customerSegment,
+      row.isAutoApply ? 1 : 0,
+      row.perCustomerLimit,
+      now,
+      id
+    );
+    writeAudit({
+      branchId: existing.branch_id,
+      userId: (_a = authRepository.getCurrentSession()) == null ? void 0 : _a.id,
+      action: existing.is_active && !row.isActive ? "ARCHIVE_COUPON" : "UPDATE_COUPON",
+      entityType: "COUPON",
+      entityId: id,
+      details: { code: existing.code, title: row.title }
+    });
+    return db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
+  },
+  validateCoupon: ({ branchId, code, orderTotalCents = 0, orderSubtotalCents, customerId = null, items = [], now } = {}) => {
+    const db = getDb();
+    const validBranchId = resolveValidBranchId$4(db, branchId);
+    const cleanCode = (code || "").trim().toUpperCase();
+    const total = orderSubtotalCents ?? orderTotalCents ?? 0;
+    const coupon = db.prepare(`
+      SELECT * FROM coupons
+      WHERE code = ? AND (branch_id = ? OR branch_id IS NULL)
+    `).get(cleanCode, validBranchId);
+    if (!coupon) {
+      throw new Error(`Invalid promo code "${cleanCode}".`);
+    }
+    const discountCents = assertCouponUsable(db, coupon, {
+      customerId,
+      orderTotalCents: total,
+      items,
+      now: now || nowParts()
+    });
+    return {
+      valid: true,
+      code: coupon.code,
+      title: coupon.title,
+      discountType: coupon.discount_type,
+      discountCents,
+      coupon
+    };
+  },
+  evaluateAutoPromotions: ({ branchId, orderTotalCents = 0, customerId = null, items = [], now } = {}) => {
+    const db = getDb();
+    const validBranchId = resolveValidBranchId$4(db, branchId);
+    const clock = now || nowParts();
+    const autos = db.prepare(`
+      SELECT * FROM coupons
+      WHERE is_active = 1 AND is_auto_apply = 1 AND (branch_id = ? OR branch_id IS NULL)
+    `).all(validBranchId);
+    let best = null;
+    for (const coupon of autos) {
+      try {
+        const discountCents = assertCouponUsable(db, coupon, {
+          customerId,
+          orderTotalCents,
+          items,
+          now: clock
+        });
+        if (discountCents > 0 && (!best || discountCents > best.discountCents)) {
+          best = {
+            valid: true,
+            code: coupon.code,
+            title: coupon.title,
+            discountType: coupon.discount_type,
+            discountCents,
+            coupon
+          };
+        }
+      } catch {
+      }
+    }
+    return best;
+  },
+  recordRedemption: ({ couponId, couponCode, orderId, customerId = null, discountCents = 0, status = "CONFIRMED" }) => {
+    if (status === "DRAFT" || status === "CANCELLED") return null;
+    const db = getDb();
+    let coupon = null;
+    if (couponId) coupon = db.prepare("SELECT * FROM coupons WHERE id = ?").get(couponId);
+    if (!coupon && couponCode) {
+      coupon = db.prepare("SELECT * FROM coupons WHERE code = ?").get(String(couponCode).trim().toUpperCase());
+    }
+    if (!coupon) return null;
+    const existing = orderId ? db.prepare("SELECT id FROM coupon_redemptions WHERE order_id = ? AND coupon_id = ?").get(orderId, coupon.id) : null;
+    if (existing) return existing.id;
+    const id = uuid$6();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    db.prepare(`
+      INSERT INTO coupon_redemptions (id, coupon_id, order_id, customer_id, discount_cents, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, coupon.id, orderId || null, customerId || null, discountCents || 0, now);
+    db.prepare("UPDATE coupons SET times_used = times_used + 1, updated_at = ? WHERE id = ?").run(now, coupon.id);
+    return id;
+  }
+};
+function uuid$4() {
   return crypto$1.randomUUID();
 }
 function resolveValidUserId$3(db, userId) {
@@ -3930,7 +5681,7 @@ function resolveValidUserId$3(db, userId) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
     if (u) return u.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.id) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
     if (u) return u.id;
@@ -3938,12 +5689,12 @@ function resolveValidUserId$3(db, userId) {
   const fallback = db.prepare("SELECT id FROM users WHERE is_active = 1 LIMIT 1").get();
   return (fallback == null ? void 0 : fallback.id) || null;
 }
-function resolveValidBranchId$4(db, branchId) {
+function resolveValidBranchId$2(db, branchId) {
   if (branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
     if (b) return b.id;
@@ -3955,12 +5706,12 @@ function logAudit$3(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
     const validUserId = resolveValidUserId$3(db, null);
-    const validBranchId = resolveValidBranchId$4(db, branchId);
+    const validBranchId = resolveValidBranchId$2(db, branchId);
     db.prepare(`
       INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      uuid$6(),
+      uuid$4(),
       validBranchId,
       validUserId,
       action,
@@ -3974,27 +5725,164 @@ function logAudit$3(branchId, action, entityType, entityId, details) {
   }
 }
 const orderRepository = {
+  replaceOpenOrder: (orderData) => {
+    const db = getDb();
+    const existing = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderData.id);
+    if (!existing) throw new Error("Order not found.");
+    if ((existing.paid_cents || 0) > 0) {
+      throw new Error("Paid orders cannot be rewritten from POS. Use refund or a new ticket.");
+    }
+    if (!["DRAFT", "CONFIRMED"].includes(existing.status)) {
+      throw new Error("Only held or unconfirmed tickets can be edited.");
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const status = orderData.status || existing.status;
+    const orderType = orderData.orderType || existing.order_type;
+    const cashierId = resolveValidUserId$3(db, orderData.cashierId);
+    const rewriteTx = db.transaction(() => {
+      if (existing.stock_posted !== 1) {
+        inventoryRepository.releaseReservedStockForOrder(existing.id);
+      }
+      const itemIds = db.prepare("SELECT id FROM order_items WHERE order_id = ?").all(existing.id);
+      for (const row of itemIds) {
+        db.prepare("DELETE FROM order_item_modifiers WHERE order_item_id = ?").run(row.id);
+      }
+      db.prepare("DELETE FROM order_items WHERE order_id = ?").run(existing.id);
+      db.prepare(`
+        UPDATE orders SET
+          order_type = ?, status = ?, table_id = ?, customer_id = ?,
+          subtotal_cents = ?, discount_cents = ?, discount_reason = ?,
+          tax_cents = ?, service_charge_cents = ?, delivery_charge_cents = ?,
+          total_cents = ?, notes = ?, kitchen_accepted_at = ?,
+          coupon_id = ?, coupon_code = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        orderType,
+        status,
+        orderData.tableId || null,
+        orderData.customerId || null,
+        orderData.subtotalCents || 0,
+        orderData.discountCents || 0,
+        orderData.discountReason || null,
+        orderData.taxCents || 0,
+        orderData.serviceChargeCents || 0,
+        orderData.deliveryChargeCents || 0,
+        orderData.totalCents || 0,
+        orderData.notes || null,
+        status === "CONFIRMED" ? existing.kitchen_accepted_at || now : null,
+        orderData.couponId || existing.coupon_id || null,
+        orderData.couponCode || existing.coupon_code || null,
+        now,
+        existing.id
+      );
+      if (Array.isArray(orderData.items)) {
+        for (const item of orderData.items) {
+          const itemId = uuid$4();
+          db.prepare(`
+            INSERT INTO order_items (
+              id, order_id, product_id, variation_id, item_name,
+              quantity, unit_price_cents, discount_cents, total_cents,
+              kitchen_status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+          `).run(
+            itemId,
+            existing.id,
+            item.productId,
+            item.variationId || null,
+            item.name || item.itemName || "Menu Item",
+            item.quantity,
+            item.unitPriceCents,
+            item.discountCents || 0,
+            item.totalCents,
+            item.notes || null
+          );
+          if (Array.isArray(item.modifiers)) {
+            for (const mod of item.modifiers) {
+              db.prepare(`
+                INSERT INTO order_item_modifiers (id, order_item_id, modifier_id, name, price_cents)
+                VALUES (?, ?, ?, ?, ?)
+              `).run(uuid$4(), itemId, mod.id || null, mod.name, (mod.priceCents || 0) * (mod.quantity || 1));
+            }
+          }
+        }
+      }
+      if (existing.status !== status) {
+        db.prepare(`
+          INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(uuid$4(), existing.id, existing.status, status, cashierId, "POS ticket updated", now);
+      }
+      if (orderType === "DINE_IN" && orderData.tableId) {
+        db.prepare("UPDATE dining_tables SET status = ?, current_order_id = ?, updated_at = ? WHERE id = ?").run("OCCUPIED", existing.id, now, orderData.tableId);
+      }
+      logAudit$3(existing.branch_id, "UPDATE_ORDER", "ORDER", existing.id, {
+        orderNumber: existing.order_number,
+        status
+      });
+      if ((orderData.discountCents || 0) > 0) {
+        logAudit$3(existing.branch_id, "DISCOUNT_OVERRIDE", "ORDER", existing.id, {
+          orderNumber: existing.order_number,
+          discountCents: orderData.discountCents,
+          reason: orderData.discountReason || null,
+          couponCode: orderData.couponCode || null
+        });
+      }
+      if (status === "CONFIRMED" && existing.stock_posted !== 1) {
+        inventoryRepository.reserveRecipeStockForOrder(existing.id);
+      }
+      couponRepository.recordRedemption({
+        couponId: orderData.couponId || existing.coupon_id,
+        couponCode: orderData.couponCode || existing.coupon_code,
+        orderId: existing.id,
+        customerId: orderData.customerId || existing.customer_id,
+        discountCents: orderData.discountCents || existing.discount_cents || 0,
+        status
+      });
+    });
+    rewriteTx();
+    const created = orderRepository.getOrderDetails(existing.id);
+    return { ...created, orderNumber: created.order_number, totalCents: created.total_cents };
+  },
   createOrder: (orderData) => {
+    if (orderData.id) {
+      return orderRepository.replaceOpenOrder(orderData);
+    }
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const orderId = orderData.id || uuid$6();
-    const orderNumber = orderData.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
+    const orderId = uuid$4();
+    const orderNumber = orderData.orderNumber || (() => {
+      const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
+      let prefixKey = "ORD";
+      try {
+        const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'order_number_prefix'").get();
+        if (row == null ? void 0 : row.setting_value) prefixKey = String(row.setting_value).replace(/[^A-Za-z0-9]/g, "").slice(0, 8) || "ORD";
+      } catch (e) {
+      }
+      const prefix = `${prefixKey}-${day}-`;
+      const last = db.prepare("SELECT order_number FROM orders WHERE order_number LIKE ? ORDER BY order_number DESC LIMIT 1").get(`${prefix}%`);
+      let seq = 1;
+      if (last == null ? void 0 : last.order_number) {
+        const n = parseInt(String(last.order_number).slice(prefix.length), 10);
+        if (!Number.isNaN(n)) seq = n + 1;
+      }
+      return `${prefix}${String(seq).padStart(4, "0")}`;
+    })();
     const status = orderData.status || "CONFIRMED";
     const orderType = orderData.orderType || "DINE_IN";
     const createOrderTx = db.transaction(() => {
-      const branchId = resolveValidBranchId$4(db, orderData.branchId);
+      const branchId = resolveValidBranchId$2(db, orderData.branchId);
       const cashierId = resolveValidUserId$3(db, orderData.cashierId);
       db.prepare(`
         INSERT INTO orders (
           id, branch_id, order_number, order_type, order_source, status,
-          table_id, customer_id, cashier_id, subtotal_cents, discount_cents,
+          table_id, customer_id, reservation_id, cashier_id, subtotal_cents, discount_cents,
           discount_reason, tax_cents, service_charge_cents, delivery_charge_cents,
-          total_cents, paid_cents, notes, kitchen_accepted_at, created_at, updated_at
+          total_cents, paid_cents, notes, kitchen_accepted_at, coupon_id, coupon_code, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, ?, ?,
-          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
-          ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?
         )
       `).run(
         orderId,
@@ -4005,6 +5893,7 @@ const orderRepository = {
         status,
         orderData.tableId || null,
         orderData.customerId || null,
+        orderData.reservationId || null,
         cashierId,
         orderData.subtotalCents || 0,
         orderData.discountCents || 0,
@@ -4016,12 +5905,14 @@ const orderRepository = {
         orderData.paidCents || 0,
         orderData.notes || null,
         status === "CONFIRMED" ? now : null,
+        orderData.couponId || null,
+        orderData.couponCode || null,
         now,
         now
       );
       if (Array.isArray(orderData.items)) {
         for (const item of orderData.items) {
-          const itemId = uuid$6();
+          const itemId = uuid$4();
           let stationId = item.kitchenStationId || null;
           if (!stationId && item.productId) {
             try {
@@ -4054,7 +5945,7 @@ const orderRepository = {
               db.prepare(`
                 INSERT INTO order_item_modifiers (id, order_item_id, modifier_id, name, price_cents)
                 VALUES (?, ?, ?, ?, ?)
-              `).run(uuid$6(), itemId, mod.id || null, mod.name, mod.priceCents || 0);
+              `).run(uuid$4(), itemId, mod.id || null, mod.name, mod.priceCents || 0);
             }
           }
         }
@@ -4062,20 +5953,42 @@ const orderRepository = {
       db.prepare(`
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, NULL, ?, ?, 'Order created via POS', ?)
-      `).run(uuid$6(), orderId, status, cashierId, now);
+      `).run(uuid$4(), orderId, status, cashierId, now);
       if (orderType === "DINE_IN" && orderData.tableId && status !== "COMPLETED" && status !== "CANCELLED") {
         db.prepare("UPDATE dining_tables SET status = ?, current_order_id = ?, updated_at = ? WHERE id = ?").run("OCCUPIED", orderId, now, orderData.tableId);
       }
       db.prepare(`
         INSERT INTO sync_outbox (id, entity_type, entity_id, operation, payload_json, status, created_at)
         VALUES (?, 'ORDER', ?, 'INSERT', ?, 'PENDING', ?)
-      `).run(uuid$6(), orderId, JSON.stringify({ id: orderId, orderNumber, totalCents: orderData.totalCents }), now);
+      `).run(uuid$4(), orderId, JSON.stringify({ id: orderId, orderNumber, totalCents: orderData.totalCents }), now);
       logAudit$3(orderData.branchId, "CREATE_ORDER", "ORDER", orderId, {
         orderNumber,
         orderType,
         totalCents: orderData.totalCents,
         status
       });
+      if ((orderData.discountCents || 0) > 0) {
+        logAudit$3(orderData.branchId, "DISCOUNT_OVERRIDE", "ORDER", orderId, {
+          orderNumber,
+          discountCents: orderData.discountCents,
+          reason: orderData.discountReason || null,
+          couponCode: orderData.couponCode || null
+        });
+      }
+      if (status === "CONFIRMED") {
+        inventoryRepository.reserveRecipeStockForOrder(orderId);
+      }
+      couponRepository.recordRedemption({
+        couponId: orderData.couponId,
+        couponCode: orderData.couponCode,
+        orderId,
+        customerId: orderData.customerId,
+        discountCents: orderData.discountCents || 0,
+        status
+      });
+      if (orderData.reservationId) {
+        db.prepare("UPDATE reservations SET status = 'SEATED', updated_at = ? WHERE id = ?").run(now, orderData.reservationId);
+      }
       const created = orderRepository.getOrderDetails(orderId);
       return {
         ...created,
@@ -4155,14 +6068,30 @@ const orderRepository = {
       if (order.status === "COMPLETED" && (order.paid_cents || 0) >= (order.total_cents || 0)) {
         throw new Error("This sale is already fully paid. Duplicate completion was blocked.");
       }
-      const validBranchId = resolveValidBranchId$4(db, branchId || order.branch_id);
+      const validBranchId = resolveValidBranchId$2(db, branchId || order.branch_id);
       const validCashierId = resolveValidUserId$3(db, cashierId || order.cashier_id);
       let totalPaymentCents = 0;
       for (const p of payments) {
         totalPaymentCents += p.amountCents || 0;
       }
+      const remainingDue = Math.max(0, (order.total_cents || 0) - (order.paid_cents || 0));
+      if (!Array.isArray(payments) || payments.length === 0) {
+        throw new Error("At least one payment method is required.");
+      }
       if (totalPaymentCents <= 0) {
         throw new Error("Payment amount must be greater than zero.");
+      }
+      if (totalPaymentCents < remainingDue) {
+        throw new Error(`Payment is short. Remaining due is $${(remainingDue / 100).toFixed(2)}.`);
+      }
+      for (const p of payments) {
+        const method = String(p.paymentMethod || "").toUpperCase();
+        if (!p.amountCents || p.amountCents <= 0) {
+          throw new Error("Each payment line must have an amount greater than zero.");
+        }
+        if (method !== "CASH" && !String(p.referenceNumber || "").trim()) {
+          throw new Error(`Reference / auth number is required for ${method.replace("_", " ")} payments.`);
+        }
       }
       for (const p of payments) {
         db.prepare(`
@@ -4171,7 +6100,7 @@ const orderRepository = {
             amount_cents, tendered_cents, change_cents, reference_number, status, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
         `).run(
-          uuid$6(),
+          uuid$4(),
           validBranchId,
           orderId,
           validCashierId,
@@ -4199,7 +6128,7 @@ const orderRepository = {
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-        uuid$6(),
+        uuid$4(),
         orderId,
         order.status,
         nextStatus,
@@ -4213,15 +6142,16 @@ const orderRepository = {
           SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ?
           WHERE id = ?
         `).run(now, order.table_id);
+        if (order.reservation_id) {
+          db.prepare("UPDATE reservations SET status = 'COMPLETED', updated_at = ? WHERE id = ?").run(now, order.reservation_id);
+        }
       }
       if (isFullyPaid) {
-        try {
-          inventoryRepository.deductRecipeStockForOrder(orderId);
-        } catch (e) {
-          console.warn("Recipe inventory auto-deduction failed:", e);
-        }
+        inventoryRepository.deductRecipeStockForOrder(orderId);
         if (order.customer_id && order.loyalty_awarded !== 1) {
-          const points = Math.max(0, Math.floor((order.total_cents || 0) / 100));
+          const earnRow = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'loyalty_earn_per_dollar'").get();
+          const earnRate = Math.max(0, parseFloat((earnRow == null ? void 0 : earnRow.setting_value) || "1") || 1);
+          const points = Math.max(0, Math.floor((order.total_cents || 0) / 100 * earnRate));
           if (points > 0) {
             customerRepository.adjustLoyaltyPoints({
               customerId: order.customer_id,
@@ -4290,12 +6220,14 @@ const orderRepository = {
       db.prepare(`
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, 'CANCELLED', ?, ?, ?)
-      `).run(uuid$6(), orderId, order.status, validCancelledBy, `Cancelled: ${reason.trim()}`, now);
+      `).run(uuid$4(), orderId, order.status, validCancelledBy, `Cancelled: ${reason.trim()}`, now);
       if (order.table_id) {
         db.prepare("UPDATE dining_tables SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ? WHERE id = ?").run(now, order.table_id);
       }
       if (order.stock_posted === 1) {
         inventoryRepository.reverseRecipeStockForOrder(orderId, `Void restock: ${reason.trim()}`);
+      } else {
+        inventoryRepository.releaseReservedStockForOrder(orderId);
       }
       logAudit$3(order.branch_id, "CANCEL_ORDER", "ORDER", orderId, {
         orderNumber: order.order_number,
@@ -4343,7 +6275,7 @@ const orderRepository = {
   getRecentOrders: (branchId, limit = 20) => {
     return orderRepository.getOrders({ branchId, limit });
   },
-  refundOrder: ({ orderId, amountCents, reason, restock = true, cashierId = null }) => {
+  refundOrder: ({ orderId, amountCents, reason, restock = true, cashierId = null, refundMethod = null, items = [] }) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const refundTx = db.transaction(() => {
@@ -4359,10 +6291,14 @@ const orderRepository = {
         throw new Error(`Refund exceeds remaining paid amount ($${(maxRefundable / 100).toFixed(2)}).`);
       }
       const validCashierId = resolveValidUserId$3(db, cashierId);
-      const refundId = uuid$6();
+      const refundId = uuid$4();
+      const originalPay = db.prepare(`
+        SELECT payment_method FROM payments WHERE order_id = ? AND status = 'COMPLETED' ORDER BY created_at DESC LIMIT 1
+      `).get(orderId);
+      const method = String(refundMethod || (originalPay == null ? void 0 : originalPay.payment_method) || "CASH").toUpperCase();
       db.prepare(`
-        INSERT INTO refunds (id, branch_id, order_id, payment_id, cashier_id, amount_cents, reason, restock, created_at)
-        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+        INSERT INTO refunds (id, branch_id, order_id, payment_id, cashier_id, amount_cents, reason, restock, created_at, refund_method)
+        VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
       `).run(
         refundId,
         order.branch_id,
@@ -4371,8 +6307,18 @@ const orderRepository = {
         amount,
         String(reason).trim(),
         restock ? 1 : 0,
-        now
+        now,
+        method
       );
+      if (Array.isArray(items)) {
+        for (const line of items) {
+          if (!line.orderItemId || !line.quantity) continue;
+          db.prepare(`
+            INSERT INTO refund_items (id, refund_id, order_item_id, quantity, amount_cents, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(uuid$4(), refundId, line.orderItemId, parseFloat(line.quantity), parseInt(line.amountCents || 0, 10), line.reason || reason);
+        }
+      }
       const newRefunded = alreadyRefunded + amount;
       const fullyRefunded = newRefunded >= (order.paid_cents || 0);
       const nextStatus = fullyRefunded ? "REFUNDED" : order.status;
@@ -4385,7 +6331,7 @@ const orderRepository = {
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-        uuid$6(),
+        uuid$4(),
         orderId,
         order.status,
         nextStatus,
@@ -4398,7 +6344,7 @@ const orderRepository = {
         WHERE branch_id = ? AND status = 'OPEN'
         ORDER BY opened_at DESC LIMIT 1
       `).get(order.branch_id);
-      if (openSession) {
+      if (openSession && method === "CASH") {
         db.prepare(`
           UPDATE cash_sessions
           SET total_refunds_cents = COALESCE(total_refunds_cents, 0) + ?
@@ -4435,7 +6381,7 @@ const orderRepository = {
   }
 };
 function requireSession() {
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (!session) {
     throw new Error("Unauthorized: Please sign in.");
   }
@@ -4464,7 +6410,7 @@ function requireAnyPermission(permCodes) {
 }
 function getActiveBranchId(providedBranchId) {
   var _a;
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session && session.roleCode !== "super_admin" && session.branchId) {
     return session.branchId;
   }
@@ -4574,38 +6520,75 @@ function registerDatabaseIpcHandlers() {
     return restoreDatabase(backupFilePath);
   });
 }
-function getDateRangeBounds(rangeType) {
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function endOfDay(date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+function getDateRangeBounds(rangeType, options = {}) {
   const now = /* @__PURE__ */ new Date();
-  let start = /* @__PURE__ */ new Date();
-  if (rangeType === "yesterday") {
-    start.setDate(now.getDate() - 1);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    return { startIso: start.toISOString(), endIso: end.toISOString() };
-  } else if (rangeType === "this_week") {
-    start.setDate(now.getDate() - 7);
-    start.setHours(0, 0, 0, 0);
-  } else if (rangeType === "this_month") {
-    start.setDate(1);
-    start.setHours(0, 0, 0, 0);
-  } else {
-    start.setHours(0, 0, 0, 0);
+  if (rangeType === "custom" && options.startDate && options.endDate) {
+    return {
+      startIso: startOfDay(options.startDate).toISOString(),
+      endIso: endOfDay(options.endDate).toISOString()
+    };
   }
+  if (rangeType === "yesterday") {
+    const start2 = startOfDay(now);
+    start2.setDate(start2.getDate() - 1);
+    return { startIso: start2.toISOString(), endIso: endOfDay(start2).toISOString() };
+  }
+  if (rangeType === "this_week") {
+    const start2 = startOfDay(now);
+    start2.setDate(start2.getDate() - 6);
+    return { startIso: start2.toISOString(), endIso: now.toISOString() };
+  }
+  if (rangeType === "this_month") {
+    const start2 = startOfDay(now);
+    start2.setDate(1);
+    return { startIso: start2.toISOString(), endIso: now.toISOString() };
+  }
+  const start = startOfDay(now);
   return { startIso: start.toISOString(), endIso: now.toISOString() };
 }
+function paymentBucket(method) {
+  const key = String(method || "").toUpperCase();
+  if (key === "CASH") return "CASH";
+  if (key === "CARD" || key === "CREDIT_CARD" || key === "DEBIT_CARD" || key === "TERMINAL") return "CARD";
+  if (key === "BANK_TRANSFER" || key === "BANK" || key === "TRANSFER") return "BANK_TRANSFER";
+  if (key === "WALLET" || key === "ONLINE" || key === "ONLINE_PAYMENT" || key === "JAZZCASH" || key === "EASYPAISA") return "WALLET";
+  return "OTHER";
+}
 const dashboardRepository = {
-  getMetrics: (branchId, rangeType = "today") => {
+  listBranches() {
     const db = getDb();
-    const { startIso, endIso } = getDateRangeBounds(rangeType);
+    return db.prepare(`
+      SELECT id, name, code, currency_symbol
+      FROM branches
+      WHERE is_active = 1
+      ORDER BY name ASC
+    `).all();
+  },
+  getMetrics: (branchId, rangeType = "today", options = {}) => {
+    var _a, _b, _c, _d;
+    const db = getDb();
+    const { startIso, endIso } = getDateRangeBounds(rangeType, options);
+    const delayedCutoff = new Date(Date.now() - 20 * 60 * 1e3).toISOString();
     const salesRow = db.prepare(`
-      SELECT 
+      SELECT
         COUNT(id) as total_orders,
         COALESCE(SUM(total_cents), 0) as gross_sales_cents,
+        COALESCE(SUM(subtotal_cents), 0) as subtotal_cents,
         COALESCE(SUM(discount_cents), 0) as total_discounts_cents,
         COALESCE(SUM(tax_cents), 0) as total_tax_cents,
         COALESCE(SUM(service_charge_cents), 0) as total_service_cents,
-        COALESCE(SUM(delivery_charge_cents), 0) as total_delivery_cents
+        COALESCE(SUM(delivery_charge_cents), 0) as total_delivery_cents,
+        COALESCE(SUM(COALESCE(refunded_cents, 0)), 0) as total_refunds_cents
       FROM orders
       WHERE branch_id = ?
         AND created_at >= ? AND created_at <= ?
@@ -4613,13 +6596,15 @@ const dashboardRepository = {
     `).get(branchId, startIso, endIso);
     const totalOrders = salesRow.total_orders || 0;
     const grossSalesCents = salesRow.gross_sales_cents || 0;
+    const refundCents = salesRow.total_refunds_cents || 0;
     const avgOrderCents = totalOrders > 0 ? Math.round(grossSalesCents / totalOrders) : 0;
+    const netSalesCents = Math.max(0, grossSalesCents - refundCents);
     const typeRows = db.prepare(`
       SELECT order_type, COUNT(id) as count, COALESCE(SUM(total_cents), 0) as total_cents
       FROM orders
       WHERE branch_id = ?
         AND created_at >= ? AND created_at <= ?
-        AND status NOT IN ('CANCELLED')
+        AND status NOT IN ('DRAFT', 'CANCELLED')
       GROUP BY order_type
     `).all(branchId, startIso, endIso);
     const ordersByType = {
@@ -4643,6 +6628,16 @@ const dashboardRepository = {
     for (const r of statusRows) {
       statusCounts[r.status] = r.count;
     }
+    const kitchen = db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN status IN ('CONFIRMED', 'PREPARING') AND kitchen_completed_at IS NULL THEN 1 ELSE 0 END), 0) as pending,
+        COALESCE(SUM(CASE WHEN status IN ('CONFIRMED', 'PREPARING') AND kitchen_completed_at IS NULL AND created_at <= ? THEN 1 ELSE 0 END), 0) as delayed,
+        COALESCE(SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END), 0) as cancelled
+      FROM orders
+      WHERE branch_id = ?
+        AND created_at >= ? AND created_at <= ?
+        AND status != 'DRAFT'
+    `).get(delayedCutoff, branchId, startIso, endIso);
     const paymentRows = db.prepare(`
       SELECT payment_method, COALESCE(SUM(amount_cents), 0) as total_cents, COUNT(id) as count
       FROM payments
@@ -4651,9 +6646,17 @@ const dashboardRepository = {
         AND status = 'COMPLETED'
       GROUP BY payment_method
     `).all(branchId, startIso, endIso);
-    const paymentsByMethod = {};
+    const paymentsByMethod = {
+      CASH: { totalCents: 0, count: 0 },
+      CARD: { totalCents: 0, count: 0 },
+      BANK_TRANSFER: { totalCents: 0, count: 0 },
+      WALLET: { totalCents: 0, count: 0 },
+      OTHER: { totalCents: 0, count: 0 }
+    };
     for (const p of paymentRows) {
-      paymentsByMethod[p.payment_method] = { totalCents: p.total_cents, count: p.count };
+      const bucket = paymentBucket(p.payment_method);
+      paymentsByMethod[bucket].totalCents += p.total_cents;
+      paymentsByMethod[bucket].count += p.count;
     }
     const topProducts = db.prepare(`
       SELECT p.id, p.name, c.name as category_name,
@@ -4665,21 +6668,47 @@ const dashboardRepository = {
       JOIN categories c ON p.category_id = c.id
       WHERE o.branch_id = ?
         AND o.created_at >= ? AND o.created_at <= ?
-        AND o.status NOT IN ('CANCELLED')
+        AND o.status NOT IN ('DRAFT', 'CANCELLED')
       GROUP BY p.id
       ORDER BY total_quantity DESC
       LIMIT 5
     `).all(branchId, startIso, endIso);
+    const topCategories = db.prepare(`
+      SELECT c.id, c.name,
+             SUM(oi.quantity) as total_quantity,
+             SUM(oi.total_cents) as total_revenue_cents
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN products p ON oi.product_id = p.id
+      JOIN categories c ON p.category_id = c.id
+      WHERE o.branch_id = ?
+        AND o.created_at >= ? AND o.created_at <= ?
+        AND o.status NOT IN ('DRAFT', 'CANCELLED')
+      GROUP BY c.id
+      ORDER BY total_revenue_cents DESC
+      LIMIT 5
+    `).all(branchId, startIso, endIso);
     const lowStockItems = db.prepare(`
-      SELECT i.id, i.name, i.sku, i.current_stock, i.minimum_level, u.abbreviation as unit
+      SELECT i.id, i.name, i.sku, i.current_stock, i.minimum_level, i.reorder_level,
+             (i.current_stock - COALESCE(i.reserved_stock, 0)) as available_stock,
+             u.abbreviation as unit,
+             CASE WHEN (i.current_stock - COALESCE(i.reserved_stock, 0)) <= 0 THEN 1 ELSE 0 END as is_out
       FROM inventory_items i
       JOIN inventory_units u ON i.unit_id = u.id
       WHERE i.branch_id = ?
         AND i.is_active = 1
-        AND i.current_stock <= i.minimum_level
-      ORDER BY i.current_stock ASC
-      LIMIT 6
+        AND (i.current_stock - COALESCE(i.reserved_stock, 0)) <= COALESCE(i.reorder_level, i.minimum_level)
+      ORDER BY is_out DESC, available_stock ASC
+      LIMIT 8
     `).all(branchId);
+    const stockCounts = db.prepare(`
+      SELECT
+        SUM(CASE WHEN (current_stock - COALESCE(reserved_stock, 0)) <= 0 THEN 1 ELSE 0 END) as out_of_stock,
+        SUM(CASE WHEN (current_stock - COALESCE(reserved_stock, 0)) > 0
+                  AND (current_stock - COALESCE(reserved_stock, 0)) <= COALESCE(reorder_level, minimum_level) THEN 1 ELSE 0 END) as low_stock
+      FROM inventory_items
+      WHERE branch_id = ? AND is_active = 1
+    `).get(branchId);
     const expenseRow = db.prepare(`
       SELECT COALESCE(SUM(amount_cents), 0) as total_cents
       FROM expenses
@@ -4687,6 +6716,53 @@ const dashboardRepository = {
         AND expense_date >= ? AND expense_date <= ?
     `).get(branchId, startIso.slice(0, 10), endIso.slice(0, 10));
     const totalExpenseCents = (expenseRow == null ? void 0 : expenseRow.total_cents) || 0;
+    const hourlyRows = db.prepare(`
+      SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour,
+             COUNT(*) as order_count,
+             COALESCE(SUM(total_cents), 0) as total_cents
+      FROM orders
+      WHERE branch_id = ?
+        AND created_at >= ? AND created_at <= ?
+        AND status NOT IN ('DRAFT', 'CANCELLED')
+      GROUP BY hour
+    `).all(branchId, startIso, endIso);
+    const hourMap = Object.fromEntries(hourlyRows.map((r) => [r.hour, r]));
+    const hourly = [];
+    for (let h = 0; h < 24; h++) {
+      hourly.push({
+        hour: h,
+        label: `${String(h).padStart(2, "0")}:00`,
+        orderCount: ((_a = hourMap[h]) == null ? void 0 : _a.order_count) || 0,
+        totalCents: ((_b = hourMap[h]) == null ? void 0 : _b.total_cents) || 0
+      });
+    }
+    const trendStart = /* @__PURE__ */ new Date();
+    trendStart.setDate(trendStart.getDate() - 6);
+    trendStart.setHours(0, 0, 0, 0);
+    const trendRows = db.prepare(`
+      SELECT substr(created_at, 1, 10) as day,
+             COUNT(*) as order_count,
+             COALESCE(SUM(total_cents), 0) as total_cents
+      FROM orders
+      WHERE branch_id = ?
+        AND created_at >= ?
+        AND status NOT IN ('DRAFT', 'CANCELLED')
+      GROUP BY day
+      ORDER BY day ASC
+    `).all(branchId, trendStart.toISOString());
+    const trendMap = Object.fromEntries(trendRows.map((r) => [r.day, r]));
+    const trend = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      trend.push({
+        day: key,
+        label: d.toLocaleDateString(void 0, { weekday: "short" }),
+        orderCount: ((_c = trendMap[key]) == null ? void 0 : _c.order_count) || 0,
+        totalCents: ((_d = trendMap[key]) == null ? void 0 : _d.total_cents) || 0
+      });
+    }
     const activeCashSession = db.prepare(`
       SELECT id, user_id, opening_balance_cents, opened_at, status
       FROM cash_sessions
@@ -4694,25 +6770,45 @@ const dashboardRepository = {
       ORDER BY opened_at DESC
       LIMIT 1
     `).get(branchId);
+    const branch = db.prepare("SELECT id, name, code, currency_symbol FROM branches WHERE id = ?").get(branchId);
     return {
       rangeType,
       bounds: { start: startIso, end: endIso },
+      branch,
       sales: {
         grossSalesCents,
+        subtotalCents: salesRow.subtotal_cents || 0,
         discountCents: salesRow.total_discounts_cents || 0,
         taxCents: salesRow.total_tax_cents || 0,
-        netSalesCents: grossSalesCents - (salesRow.total_discounts_cents || 0),
+        serviceChargeCents: salesRow.total_service_cents || 0,
+        deliveryChargeCents: salesRow.total_delivery_cents || 0,
+        refundCents,
+        netSalesCents,
         totalOrders,
         avgOrderCents
       },
       ordersByType,
       statusCounts,
+      kitchen: {
+        pending: (kitchen == null ? void 0 : kitchen.pending) || 0,
+        delayed: (kitchen == null ? void 0 : kitchen.delayed) || 0,
+        completed: (statusCounts.COMPLETED || 0) + (statusCounts.SERVED || 0),
+        cancelled: statusCounts.CANCELLED || 0
+      },
       paymentsByMethod,
       topProducts,
+      topCategories,
       lowStockItems,
-      expenses: {
-        totalExpenseCents
+      stockAlerts: {
+        low: (stockCounts == null ? void 0 : stockCounts.low_stock) || 0,
+        out: (stockCounts == null ? void 0 : stockCounts.out_of_stock) || 0
       },
+      expenses: {
+        totalExpenseCents,
+        estimatedNetProfitCents: netSalesCents - totalExpenseCents
+      },
+      hourly,
+      trend,
       cashSession: activeCashSession || null
     };
   }
@@ -4721,9 +6817,9 @@ function registerAuthAndDashboardHandlers() {
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event, credentials) => {
     try {
       if (credentials.pin) {
-        return authRepository$1.loginWithPin(credentials.pin, credentials.userId, credentials.username);
+        return authRepository.loginWithPin(credentials.pin, credentials.userId, credentials.username);
       } else if (credentials.username && credentials.password) {
-        return authRepository$1.loginWithPassword(credentials.username, credentials.password);
+        return authRepository.loginWithPassword(credentials.username, credentials.password);
       } else {
         throw new Error("Must provide PIN or username and password.");
       }
@@ -4733,34 +6829,42 @@ function registerAuthAndDashboardHandlers() {
     }
   });
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
-    return authRepository$1.logout();
+    return authRepository.logout();
   });
   ipcMain.handle(IPC_CHANNELS.AUTH_CURRENT_USER, async () => {
-    return authRepository$1.getCurrentSession();
+    return authRepository.getCurrentSession();
   });
   ipcMain.handle("auth:get-login-users", async () => {
-    return authRepository$1.getLoginUsers();
+    return authRepository.getLoginUsers();
   });
   ipcMain.handle("auth:needs-setup", async () => {
-    return authRepository$1.needsSetup();
+    return authRepository.needsSetup();
   });
   ipcMain.handle("auth:complete-setup", async (_event, payload) => {
-    return authRepository$1.completeInitialSetup(payload || {});
+    return authRepository.completeInitialSetup(payload || {});
   });
-  ipcMain.handle("dashboard:get-metrics", async (_event, { branchId, rangeType } = {}) => {
+  ipcMain.handle("dashboard:get-metrics", async (_event, payload = {}) => {
     var _a;
     try {
-      const session = authRepository$1.getCurrentSession();
+      const session = authRepository.getCurrentSession();
       if (!session) throw new Error("Unauthorized: Please sign in.");
       if (session.roleCode !== "super_admin" && !((_a = session.permissions) == null ? void 0 : _a.includes("dashboard:view"))) {
         throw new Error("Unauthorized: Requires 'dashboard:view' permission.");
       }
-      const activeBranchId = session.roleCode === "super_admin" ? branchId || session.branchId : session.branchId;
-      return dashboardRepository.getMetrics(activeBranchId, rangeType || "today");
+      const activeBranchId = session.roleCode === "super_admin" ? payload.branchId || session.branchId : session.branchId;
+      return dashboardRepository.getMetrics(activeBranchId, payload.rangeType || "today", payload);
     } catch (err) {
       console.error("[IPC dashboard:get-metrics] Error:", err.message);
       throw err;
     }
+  });
+  ipcMain.handle("dashboard:list-branches", async () => {
+    const session = authRepository.getCurrentSession();
+    if (!session) throw new Error("Unauthorized: Please sign in.");
+    if (session.roleCode !== "super_admin") {
+      return session.branchId ? [{ id: session.branchId, name: session.branchName, code: null, currency_symbol: session.currencySymbol }] : [];
+    }
+    return dashboardRepository.listBranches();
   });
 }
 function assertPermission$3(permCode) {
@@ -4865,7 +6969,7 @@ function registerPosIpcHandlers() {
     return orderRepository.getOrderDetails(orderId);
   });
   ipcMain.handle("pos:process-payment", async (_event, paymentData) => {
-    requirePermission("pos:create_order");
+    requirePermission("pos:process_payment");
     const branchId = getActiveBranchId(paymentData.branchId);
     const session = requireSession();
     const result = orderRepository.processPayment({
@@ -4891,8 +6995,12 @@ function registerPosIpcHandlers() {
     return orderRepository.getHeldOrders(getActiveBranchId(branchId));
   });
   ipcMain.handle("pos:cancel-order", async (_event, { orderId, reason }) => {
-    requirePermission("pos:create_order");
-    const session = requireSession();
+    const session = requirePermission("pos:void_order");
+    const order = orderRepository.getOrderDetails(orderId);
+    const kitchenStarted = Boolean(order == null ? void 0 : order.kitchen_accepted_at) || ((order == null ? void 0 : order.items) || []).some((it) => it.kitchen_status && it.kitchen_status !== "PENDING");
+    if (kitchenStarted) {
+      requireAnyPermission(["pos:void_prepared", "staff:manage"]);
+    }
     const result = orderRepository.cancelOrder(orderId, reason, session.id);
     broadcast("kitchen:order-update", { orderId, status: "CANCELLED" });
     return result;
@@ -4908,11 +7016,28 @@ function registerPosIpcHandlers() {
     return result;
   });
   ipcMain.handle("pos:get-orders", async (_event, params = {}) => {
-    requireSession();
+    requireAnyPermission(["pos:create_order", "pos:process_payment", "pos:print_receipt", "reports:view"]);
     return orderRepository.getOrders({
       ...params,
       branchId: getActiveBranchId(params.branchId)
     });
+  });
+  ipcMain.handle("pos:record-print", async (_event, { orderId, reprint = false } = {}) => {
+    const session = requirePermission("pos:print_receipt");
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, ?, 'ORDER', ?, ?, ?)
+    `).run(
+      crypto$1.randomUUID(),
+      session.branchId || null,
+      session.id,
+      reprint ? "REPRINT_RECEIPT" : "PRINT_RECEIPT",
+      orderId || null,
+      JSON.stringify({ reprint: Boolean(reprint), username: session.username }),
+      (/* @__PURE__ */ new Date()).toISOString()
+    );
+    return { ok: true };
   });
 }
 function assertPermission$2(permCode) {
@@ -4924,7 +7049,7 @@ function registerTableIpcHandlers() {
     return tableRepository.getFloorsWithTables(getActiveBranchId(branchId));
   });
   ipcMain.handle("table:update-status", async (_event, { tableId, status, currentOrderId }) => {
-    assertPermission$2("pos:create_order");
+    requireAnyPermission(["pos:create_order", "tables:view", "tables:manage"]);
     return tableRepository.updateTableStatus(tableId, status, currentOrderId);
   });
   ipcMain.handle("table:transfer-table", async (_event, transferData) => {
@@ -4932,30 +7057,34 @@ function registerTableIpcHandlers() {
     return tableRepository.transferTable(transferData);
   });
   ipcMain.handle("table:create-floor", async (_event, floorData) => {
-    assertPermission$2("settings:manage");
+    requireAnyPermission(["tables:manage", "settings:branch", "settings:manage"]);
     const branchId = getActiveBranchId(floorData.branchId);
     return tableRepository.createFloor({ ...floorData, branchId });
   });
   ipcMain.handle("table:update-floor", async (_event, { id, ...floorData }) => {
-    assertPermission$2("settings:manage");
+    requireAnyPermission(["tables:manage", "settings:branch", "settings:manage"]);
     return tableRepository.updateFloor(id, floorData);
   });
   ipcMain.handle("table:create-table", async (_event, tableData) => {
-    assertPermission$2("settings:manage");
+    requireAnyPermission(["tables:manage", "settings:branch", "settings:manage"]);
     const branchId = getActiveBranchId(tableData.branchId);
     return tableRepository.createTable({ ...tableData, branchId });
   });
   ipcMain.handle("table:update-table", async (_event, { id, ...tableData }) => {
-    assertPermission$2("settings:manage");
+    requireAnyPermission(["tables:manage", "settings:branch", "settings:manage"]);
     return tableRepository.updateTable(id, tableData);
   });
   ipcMain.handle("table:archive-table", async (_event, id) => {
-    assertPermission$2("settings:manage");
+    requireAnyPermission(["tables:manage", "settings:branch", "settings:manage"]);
     return tableRepository.archiveTable(id);
   });
   ipcMain.handle("table:merge-tables", async (_event, data) => {
     requirePermission("pos:create_order");
     return tableRepository.mergeTables(data);
+  });
+  ipcMain.handle("table:split-bill", async (_event, data) => {
+    requirePermission("pos:create_order");
+    return tableRepository.splitBill(data);
   });
 }
 function uuid$5() {
@@ -4966,7 +7095,7 @@ function resolveValidBranchId$3(db, branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
     if (b) return b.id;
@@ -4975,7 +7104,7 @@ function resolveValidBranchId$3(db, branchId) {
   return (fallback == null ? void 0 : fallback.id) || null;
 }
 function resolveValidUserId$2(db, userId) {
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.id) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
     if (u) return u.id;
@@ -5038,7 +7167,13 @@ const reservationRepository = {
       params.push(term, term, term);
     }
     sql += " ORDER BY r.reservation_date ASC, r.reservation_time ASC";
-    return db.prepare(sql).all(...params);
+    return db.prepare(sql).all(...params).map((r) => ({
+      ...r,
+      guest_name: r.customer_name,
+      guest_phone: r.customer_phone,
+      start_time: r.reservation_time,
+      special_requests: r.notes
+    }));
   },
   /**
    * Get single reservation by ID
@@ -5066,8 +7201,18 @@ const reservationRepository = {
     const reservationId = uuid$5();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const createTx = db.transaction(() => {
-      const resDate = data.reservationDate || data.reservationTime.slice(0, 10);
-      const resTime = data.reservationTime;
+      const customerName = data.customerName || data.guestName || "";
+      const customerPhone = data.customerPhone || data.guestPhone || "";
+      const reservationTimeRaw = data.reservationTime || data.startTime;
+      if (!customerName.trim() || !customerPhone.trim()) {
+        throw new Error("Guest name and phone are required.");
+      }
+      if (!reservationTimeRaw) throw new Error("Reservation date and time are required.");
+      const resDate = data.reservationDate || String(reservationTimeRaw).slice(0, 10);
+      const resTime = reservationTimeRaw;
+      data.customerName = customerName;
+      data.customerPhone = customerPhone;
+      data.notes = data.notes || data.specialRequests || null;
       const durationMins = data.durationMinutes || 90;
       if (data.tableId) {
         const existingBookings = db.prepare(`
@@ -5168,11 +7313,13 @@ const reservationRepository = {
   /**
    * Check Table Availability for a given date, time and party size
    */
-  checkAvailability: ({ branchId, date, time, partySize, durationMinutes = 90 }) => {
+  checkAvailability: ({ branchId, date, time, startTime, partySize, durationMinutes = 90 }) => {
     const db = getDb();
     const validBranchId = resolveValidBranchId$3(db, branchId);
     const requiredCap = parseInt(partySize, 10) || 1;
-    const targetStart = (/* @__PURE__ */ new Date(`${date}T${time}`)).getTime();
+    const resolvedDate = date || (startTime ? String(startTime).slice(0, 10) : null);
+    const resolvedTime = time || (startTime && String(startTime).includes("T") ? String(startTime).slice(11, 16) : time);
+    const targetStart = new Date(startTime || `${resolvedDate}T${resolvedTime}`).getTime();
     const targetEnd = targetStart + durationMinutes * 60 * 1e3;
     const eligibleTables = db.prepare(`
       SELECT t.*, f.name as floor_name
@@ -5186,7 +7333,7 @@ const reservationRepository = {
       FROM reservations
       WHERE branch_id = ? AND (reservation_date = ? OR reservation_time LIKE ?)
         AND status IN ('CONFIRMED', 'PENDING', 'SEATED') AND table_id IS NOT NULL
-    `).all(validBranchId, date, `${date}%`);
+    `).all(validBranchId, resolvedDate, `${resolvedDate}%`);
     const bookedTableIds = /* @__PURE__ */ new Set();
     for (const b of dayBookings) {
       const bStart = new Date(b.reservation_time).getTime();
@@ -5197,151 +7344,10 @@ const reservationRepository = {
         }
       }
     }
-    return eligibleTables.map((t) => ({
-      ...t,
-      isAvailable: !bookedTableIds.has(t.id)
-    }));
-  }
-};
-function uuid$4() {
-  return crypto$1.randomUUID();
-}
-function resolveValidBranchId$2(db, branchId) {
-  if (branchId) {
-    const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
-    if (b) return b.id;
-  }
-  const session = authRepository$1.getCurrentSession();
-  if (session == null ? void 0 : session.branchId) {
-    const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
-    if (b) return b.id;
-  }
-  const fallback = db.prepare("SELECT id FROM branches LIMIT 1").get();
-  return (fallback == null ? void 0 : fallback.id) || null;
-}
-const couponRepository = {
-  getCoupons: (branchId) => {
-    const db = getDb();
-    const validBranchId = resolveValidBranchId$2(db, branchId);
-    return db.prepare(`
-      SELECT * FROM coupons
-      WHERE branch_id = ? OR branch_id IS NULL
-      ORDER BY is_active DESC, created_at DESC
-    `).all(validBranchId);
-  },
-  createCoupon: (data) => {
-    const db = getDb();
-    const validBranchId = resolveValidBranchId$2(db, data.branchId);
-    const id = uuid$4();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const cleanCode = data.code.trim().toUpperCase();
-    const existing = db.prepare("SELECT id FROM coupons WHERE code = ?").get(cleanCode);
-    if (existing) throw new Error(`Coupon code "${cleanCode}" already exists.`);
-    db.prepare(`
-      INSERT INTO coupons (
-        id, branch_id, code, title, discount_type, discount_value,
-        min_order_cents, max_discount_cents, start_date, end_date,
-        usage_limit, times_used, is_active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-    `).run(
-      id,
-      validBranchId,
-      cleanCode,
-      data.title.trim(),
-      data.discountType || "PERCENTAGE",
-      parseInt(data.discountValue, 10) || 10,
-      Math.max(0, parseInt(data.minOrderCents, 10) || 0),
-      data.maxDiscountCents ? parseInt(data.maxDiscountCents, 10) : null,
-      data.startDate || null,
-      data.endDate || null,
-      parseInt(data.usageLimit, 10) || 0,
-      data.isActive !== false ? 1 : 0,
-      now,
-      now
-    );
-    return db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
-  },
-  updateCoupon: (id, data) => {
-    const db = getDb();
-    const existing = db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
-    if (!existing) throw new Error("Coupon not found.");
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    db.prepare(`
-      UPDATE coupons
-      SET title = ?,
-          discount_type = ?,
-          discount_value = ?,
-          min_order_cents = ?,
-          max_discount_cents = ?,
-          start_date = ?,
-          end_date = ?,
-          usage_limit = ?,
-          is_active = ?,
-          updated_at = ?
-      WHERE id = ?
-    `).run(
-      data.title !== void 0 ? data.title.trim() : existing.title,
-      data.discountType !== void 0 ? data.discountType : existing.discount_type,
-      data.discountValue !== void 0 ? parseInt(data.discountValue, 10) : existing.discount_value,
-      data.minOrderCents !== void 0 ? parseInt(data.minOrderCents, 10) : existing.min_order_cents,
-      data.maxDiscountCents !== void 0 ? data.maxDiscountCents ? parseInt(data.maxDiscountCents, 10) : null : existing.max_discount_cents,
-      data.startDate !== void 0 ? data.startDate : existing.start_date,
-      data.endDate !== void 0 ? data.endDate : existing.end_date,
-      data.usageLimit !== void 0 ? parseInt(data.usageLimit, 10) : existing.usage_limit,
-      data.isActive !== void 0 ? data.isActive ? 1 : 0 : existing.is_active,
-      now,
-      id
-    );
-    return db.prepare("SELECT * FROM coupons WHERE id = ?").get(id);
-  },
-  /**
-   * Validate coupon and calculate discount amount
-   */
-  validateCoupon: ({ branchId, code, orderTotalCents = 0 }) => {
-    const db = getDb();
-    const validBranchId = resolveValidBranchId$2(db, branchId);
-    const cleanCode = (code || "").trim().toUpperCase();
-    const coupon = db.prepare(`
-      SELECT * FROM coupons
-      WHERE code = ? AND (branch_id = ? OR branch_id IS NULL)
-    `).get(cleanCode, validBranchId);
-    if (!coupon) {
-      throw new Error(`Invalid promo code "${cleanCode}".`);
-    }
-    if (!coupon.is_active) {
-      throw new Error(`Promo code "${cleanCode}" is no longer active.`);
-    }
-    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (coupon.start_date && today < coupon.start_date) {
-      throw new Error(`Promo code "${cleanCode}" is not active yet (starts ${coupon.start_date}).`);
-    }
-    if (coupon.end_date && today > coupon.end_date) {
-      throw new Error(`Promo code "${cleanCode}" has expired (ended ${coupon.end_date}).`);
-    }
-    if (coupon.usage_limit > 0 && coupon.times_used >= coupon.usage_limit) {
-      throw new Error(`Promo code "${cleanCode}" has reached its maximum usage limit.`);
-    }
-    if (orderTotalCents < coupon.min_order_cents) {
-      const minDollars = (coupon.min_order_cents / 100).toFixed(2);
-      throw new Error(`Coupon "${cleanCode}" requires a minimum spend of $${minDollars}.`);
-    }
-    let discountCents = 0;
-    if (coupon.discount_type === "PERCENTAGE") {
-      discountCents = Math.round(orderTotalCents * coupon.discount_value / 100);
-      if (coupon.max_discount_cents && discountCents > coupon.max_discount_cents) {
-        discountCents = coupon.max_discount_cents;
-      }
-    } else {
-      discountCents = Math.min(orderTotalCents, coupon.discount_value);
-    }
-    return {
-      valid: true,
-      code: coupon.code,
-      title: coupon.title,
-      discountType: coupon.discount_type,
-      discountCents,
-      coupon
-    };
+    return eligibleTables.map((t) => {
+      const free = !bookedTableIds.has(t.id);
+      return { ...t, isAvailable: free, is_available: free };
+    });
   }
 };
 function registerCustomerIpcHandlers() {
@@ -5358,7 +7364,7 @@ function registerCustomerIpcHandlers() {
     return customerRepository.getCustomerById(id);
   });
   ipcMain.handle("customer:create", async (_event, customerData) => {
-    requireSession();
+    requireAnyPermission(["customers:manage", "customers:view", "pos:create_order"]);
     const branchId = getActiveBranchId(customerData.branchId);
     return customerRepository.createCustomer({
       ...customerData,
@@ -5366,6 +7372,7 @@ function registerCustomerIpcHandlers() {
     });
   });
   ipcMain.handle("customer:update", async (_event, { id, data }) => {
+    requireAnyPermission(["customers:manage", "pos:create_order"]);
     return customerRepository.updateCustomer(id, data || {});
   });
   ipcMain.handle("customer:adjust-loyalty", async (_event, data) => {
@@ -5375,6 +7382,10 @@ function registerCustomerIpcHandlers() {
   });
   ipcMain.handle("customer:get-summary", async (_event, branchId) => {
     return customerRepository.getCrmSummary(getActiveBranchId(branchId));
+  });
+  ipcMain.handle("customer:merge", async (_event, data) => {
+    requireAnyPermission(["customers:manage", "pos:process_refund"]);
+    return customerRepository.mergeCustomers(data);
   });
   ipcMain.handle("reservation:get-reservations", async (_event, params = {}) => {
     const branchId = getActiveBranchId(params.branchId);
@@ -5386,6 +7397,7 @@ function registerCustomerIpcHandlers() {
     return reservationRepository.createReservation({ ...data, branchId });
   });
   ipcMain.handle("reservation:update-status", async (_event, { id, status }) => {
+    requirePermission("reservations:manage");
     return reservationRepository.updateReservationStatus(id, status);
   });
   ipcMain.handle("reservation:check-availability", async (_event, params = {}) => {
@@ -5406,9 +7418,22 @@ function registerCustomerIpcHandlers() {
     const branchId = getActiveBranchId(data.branchId);
     return couponRepository.validateCoupon({ ...data, branchId });
   });
+  ipcMain.handle("coupon:evaluate-auto", async (_event, data = {}) => {
+    const branchId = getActiveBranchId(data.branchId);
+    return couponRepository.evaluateAutoPromotions({ ...data, branchId });
+  });
 }
 function uuid$3() {
   return crypto$1.randomUUID();
+}
+function getSettingInt(db, key, fallback) {
+  try {
+    const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?").get(key);
+    const parsed = parseInt(row == null ? void 0 : row.setting_value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 const kitchenRepository = {
   /**
@@ -5557,10 +7582,11 @@ const kitchenRepository = {
       }
       const orderCreatedMs = new Date(ord.created_at).getTime();
       const elapsedMinutes = Math.max(0, Math.floor((nowMs - orderCreatedMs) / 6e4));
+      const delayThreshold = getSettingInt(db, "kds_delay_minutes", ord.target_prep_minutes || 15);
       let delayStatus = "NORMAL";
-      if (elapsedMinutes >= ord.target_prep_minutes) {
+      if (elapsedMinutes >= delayThreshold) {
         delayStatus = "DELAYED";
-      } else if (elapsedMinutes >= Math.floor(ord.target_prep_minutes * 0.65)) {
+      } else if (elapsedMinutes >= Math.floor(delayThreshold * 0.65)) {
         delayStatus = "WARNING";
       }
       const totalItemsCount = items.reduce((acc, it) => acc + (it.quantity || 1), 0);
@@ -5569,6 +7595,7 @@ const kitchenRepository = {
       enrichedOrders.push({
         ...ord,
         elapsedMinutes,
+        delayThreshold,
         delayStatus,
         totalItemsCount,
         readyItemsCount,
@@ -5639,6 +7666,23 @@ const kitchenRepository = {
     });
     return updateItemTx();
   },
+  acceptOrder: ({ orderId, userId }) => {
+    const db = getDb();
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+    if (!order) throw new Error(`Order with ID "${orderId}" not found.`);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    db.prepare(`
+      UPDATE orders
+      SET kitchen_accepted_at = COALESCE(kitchen_accepted_at, ?),
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, orderId);
+    db.prepare(`
+      INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+      VALUES (?, ?, ?, 'ACCEPTED', ?, 'Kitchen accepted ticket', ?)
+    `).run(uuid$3(), orderId, order.status, userId || null, now);
+    return db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+  },
   /**
    * Update full order status in Kitchen workflow
    * @param {object} params
@@ -5649,7 +7693,7 @@ const kitchenRepository = {
    */
   updateOrderStatus: ({ orderId, status, userId, notes }) => {
     const db = getDb();
-    const allowed = ["CONFIRMED", "PREPARING", "READY", "SERVED", "COMPLETED"];
+    const allowed = ["CONFIRMED", "PREPARING", "READY", "SERVED", "COMPLETED", "OUT_FOR_DELIVERY", "DELIVERED"];
     if (!allowed.includes(status)) {
       throw new Error(`Invalid status "${status}". Allowed: ${allowed.join(", ")}`);
     }
@@ -5744,10 +7788,12 @@ const kitchenRepository = {
       WHERE branch_id = ? AND status IN ('CONFIRMED', 'PREPARING')
     `).all(targetBranchId);
     const nowMs = Date.now();
+    const globalDelay = getSettingInt(db, "kds_delay_minutes", 15);
     let delayedCount = 0;
     for (const o of activeOrders) {
       const elapsed = (nowMs - new Date(o.created_at).getTime()) / 6e4;
-      if (elapsed >= o.target_prep_minutes) delayedCount++;
+      const threshold = globalDelay || o.target_prep_minutes;
+      if (elapsed >= threshold) delayedCount++;
     }
     return {
       activeTickets,
@@ -5772,18 +7818,30 @@ function registerKitchenIpcHandlers() {
   });
   ipcMain.handle("kitchen:update-item-status", async (_event, { orderItemId, status }) => {
     assertPermission$1("kitchen:view");
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
     const result = kitchenRepository.updateOrderItemStatus({
       orderItemId,
       status,
       userId: (session == null ? void 0 : session.id) || null
     });
-    broadcast("kitchen:order-update", { orderItemId, status });
+    broadcast("kitchen:order-update", { orderItemId, status, orderId: result == null ? void 0 : result.order_id });
+    broadcast("pos:status-change", { orderId: result == null ? void 0 : result.order_id, itemStatus: status });
+    return result;
+  });
+  ipcMain.handle("kitchen:accept-order", async (_event, { orderId }) => {
+    assertPermission$1("kitchen:view");
+    const session = authRepository.getCurrentSession();
+    const result = kitchenRepository.acceptOrder({
+      orderId,
+      userId: (session == null ? void 0 : session.id) || null
+    });
+    broadcast("kitchen:order-update", { orderId, status: "ACCEPTED" });
+    broadcast("pos:status-change", { orderId, status: "ACCEPTED" });
     return result;
   });
   ipcMain.handle("kitchen:update-order-status", async (_event, { orderId, status, notes }) => {
     assertPermission$1("kitchen:view");
-    const session = authRepository$1.getCurrentSession();
+    const session = authRepository.getCurrentSession();
     const result = kitchenRepository.updateOrderStatus({
       orderId,
       status,
@@ -5814,6 +7872,25 @@ function registerKitchenIpcHandlers() {
     assertPermission$1("kitchen:view");
     return kitchenRepository.getKitchenMetrics(getActiveBranchId(branchId));
   });
+}
+function emitLowStock(branchId) {
+  try {
+    const alerts = inventoryRepository.getLowStockAlerts(branchId);
+    if (alerts.length) {
+      broadcast("inventory:low-stock", {
+        count: alerts.length,
+        items: alerts.slice(0, 20).map((i) => ({
+          id: i.id,
+          name: i.name,
+          available: i.available_stock,
+          reorderLevel: i.reorder_level,
+          unit: i.unit_abbr,
+          isOutOfStock: i.isOutOfStock
+        }))
+      });
+    }
+  } catch (e) {
+  }
 }
 function assertPermission(permCode) {
   return requirePermission(permCode);
@@ -5849,13 +7926,33 @@ function registerInventoryIpcHandlers() {
     return inventoryRepository.updateItem(id, data);
   });
   ipcMain.handle("inventory:adjust-stock", async (_event, data) => {
-    assertPermission("inventory:manage");
+    requireAnyPermission(["inventory:manage", "inventory:adjust"]);
     const session = authRepository.getCurrentSession();
-    return inventoryRepository.adjustStock({
+    const result = inventoryRepository.adjustStock({
       ...data,
       branchId: getActiveBranchId(data.branchId),
       userId: (session == null ? void 0 : session.id) || null
     });
+    emitLowStock(getActiveBranchId(data.branchId));
+    return result;
+  });
+  ipcMain.handle("inventory:transfer-stock", async (_event, data) => {
+    requireAnyPermission(["inventory:manage", "inventory:adjust"]);
+    const session = authRepository.getCurrentSession();
+    const result = inventoryRepository.transferStock({
+      ...data,
+      userId: (session == null ? void 0 : session.id) || null
+    });
+    emitLowStock(getActiveBranchId(data.branchId));
+    return result;
+  });
+  ipcMain.handle("inventory:get-alerts", async (_event, params = {}) => {
+    requireSession();
+    return inventoryRepository.getLowStockAlerts(getActiveBranchId(params.branchId));
+  });
+  ipcMain.handle("inventory:get-branches", async () => {
+    requireSession();
+    return inventoryRepository.getBranches();
   });
   ipcMain.handle("inventory:get-movements", async (_event, params = {}) => {
     assertPermission("inventory:manage");
@@ -5876,6 +7973,14 @@ function registerInventoryIpcHandlers() {
   ipcMain.handle("recipe:save-recipe", async (_event, recipeData) => {
     assertPermission("inventory:manage");
     return inventoryRepository.saveRecipe(recipeData);
+  });
+  ipcMain.handle("recipe:set-active", async (_event, { id, isActive }) => {
+    assertPermission("inventory:manage");
+    return inventoryRepository.setRecipeActive(id, isActive);
+  });
+  ipcMain.handle("recipe:get-versions", async (_event, recipeId) => {
+    requireSession();
+    return inventoryRepository.getRecipeVersions(recipeId);
   });
   ipcMain.handle("supplier:get-suppliers", async (_event, branchId) => {
     return inventoryRepository.getSuppliers(getActiveBranchId(branchId));
@@ -5905,6 +8010,29 @@ function registerInventoryIpcHandlers() {
       branchId: getActiveBranchId(orderData.branchId)
     });
   });
+  ipcMain.handle("purchase:receive-order", async (_event, data) => {
+    assertPermission("inventory:manage");
+    const session = authRepository.getCurrentSession();
+    return inventoryRepository.receivePurchaseOrder({
+      ...data,
+      userId: (session == null ? void 0 : session.id) || null
+    });
+  });
+  ipcMain.handle("purchase:return-items", async (_event, data) => {
+    assertPermission("inventory:manage");
+    const session = authRepository.getCurrentSession();
+    return inventoryRepository.returnPurchaseItems({
+      ...data,
+      userId: (session == null ? void 0 : session.id) || null
+    });
+  });
+  ipcMain.handle("purchase:vendor-statement", async (_event, params = {}) => {
+    assertPermission("inventory:manage");
+    return inventoryRepository.getVendorStatement({
+      ...params,
+      branchId: getActiveBranchId(params.branchId)
+    });
+  });
   ipcMain.handle("purchase:record-payment", async (_event, paymentData) => {
     assertPermission("inventory:manage");
     return inventoryRepository.recordVendorPayment({
@@ -5916,14 +8044,14 @@ function registerInventoryIpcHandlers() {
     return inventoryRepository.getExpenseCategories();
   });
   ipcMain.handle("expense:get-expenses", async (_event, params = {}) => {
-    assertPermission("reports:view");
+    requireAnyPermission(["reports:view", "expenses:manage"]);
     return inventoryRepository.getExpenses({
       ...params,
       branchId: getActiveBranchId(params.branchId)
     });
   });
   ipcMain.handle("expense:create", async (_event, data) => {
-    assertPermission("reports:view");
+    requireAnyPermission(["reports:view", "expenses:manage"]);
     const session = authRepository.getCurrentSession();
     return inventoryRepository.createExpense({
       ...data,
@@ -5931,8 +8059,18 @@ function registerInventoryIpcHandlers() {
       userId: (session == null ? void 0 : session.id) || null
     });
   });
+  ipcMain.handle("expense:approve", async (_event, id) => {
+    requireAnyPermission(["expenses:manage", "staff:manage"]);
+    const session = authRepository.getCurrentSession();
+    return inventoryRepository.approveExpense(id, session == null ? void 0 : session.id);
+  });
+  ipcMain.handle("expense:cancel", async (_event, { id, reason }) => {
+    requireAnyPermission(["expenses:manage", "staff:manage"]);
+    const session = authRepository.getCurrentSession();
+    return inventoryRepository.cancelExpense(id, reason, session == null ? void 0 : session.id);
+  });
   ipcMain.handle("expense:get-summary", async (_event, params = {}) => {
-    assertPermission("reports:view");
+    requireAnyPermission(["reports:view", "expenses:manage"]);
     return inventoryRepository.getExpenseSummary({
       ...params,
       branchId: getActiveBranchId(params.branchId)
@@ -5947,7 +8085,7 @@ function resolveValidUserId$1(db, userId) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
     if (u) return u.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.id) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
     if (u) return u.id;
@@ -5960,7 +8098,7 @@ function resolveValidBranchId$1(db, branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
     if (b) return b.id;
@@ -6125,8 +8263,8 @@ const cashDrawerRepository = {
       if (method === "CASH") totalCashSalesCents += p.total_cents;
       else if (method === "CARD") totalCardSalesCents += p.total_cents;
       else if (method === "BANK_TRANSFER") totalBankSalesCents += p.total_cents;
-      else if (method === "ONLINE") totalOnlineSalesCents += p.total_cents;
-      else totalCashSalesCents += p.total_cents;
+      else if (method === "ONLINE" || method === "WALLET") totalOnlineSalesCents += p.total_cents;
+      else totalOnlineSalesCents += p.total_cents;
     }
     const movements = db.prepare(`
       SELECT movement_type, SUM(amount_cents) as total_cents, COUNT(*) as count
@@ -6327,7 +8465,20 @@ function registerCashDrawerIpcHandlers() {
     return cashDrawerRepository.getXReport(sessionId);
   });
   ipcMain.handle("cash:close-session", async (_event, data) => {
-    requireAnyPermission(["cash:manage", "pos:create_order"]);
+    var _a, _b;
+    const session = requireAnyPermission(["cash:manage", "pos:create_order"]);
+    const details = cashDrawerRepository.getXReport(data.sessionId);
+    const expected = ((_a = details == null ? void 0 : details.metrics) == null ? void 0 : _a.expectedCashCents) || 0;
+    const counted = parseInt(data.countedCashCents, 10) || 0;
+    const variance = Math.abs(counted - expected);
+    const threshold = parseInt(
+      ((_b = getDb().prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'cash_variance_approval_cents'").get()) == null ? void 0 : _b.setting_value) || "0",
+      10
+    );
+    if (variance > threshold) {
+      requireAnyPermission(["staff:manage", "settings:manage"]);
+      data.managerApprovalUserId = data.managerApprovalUserId || session.id;
+    }
     return cashDrawerRepository.closeSession(data);
   });
   ipcMain.handle("cash:get-history", async (_event, params = {}) => {
@@ -6348,7 +8499,7 @@ function resolveValidBranchId(db, branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
   }
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(session.branchId);
     if (b) return b.id;
@@ -6357,7 +8508,7 @@ function resolveValidBranchId(db, branchId) {
   return (fallback == null ? void 0 : fallback.id) || null;
 }
 function resolveValidUserId(db, userId) {
-  const session = authRepository$1.getCurrentSession();
+  const session = authRepository.getCurrentSession();
   if (session == null ? void 0 : session.id) {
     const u = db.prepare("SELECT id FROM users WHERE id = ?").get(session.id);
     if (u) return u.id;
@@ -6634,6 +8785,36 @@ const staffRepository = {
     });
     return db.prepare("SELECT * FROM staff_attendance WHERE id = ?").get(attendanceId);
   },
+  markAttendance: ({ employeeId, branchId, status, notes, shiftId = null }) => {
+    const db = getDb();
+    const emp = db.prepare("SELECT * FROM employees WHERE id = ?").get(employeeId);
+    if (!emp) throw new Error("Employee not found.");
+    const code = String(status || "PRESENT").toUpperCase();
+    if (!["PRESENT", "ABSENT", "LATE", "LEAVE"].includes(code)) {
+      throw new Error("Attendance status must be Present, Absent, Late or Leave.");
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const id = uuid$1();
+    db.prepare(`
+      INSERT INTO staff_attendance (
+        id, branch_id, employee_id, shift_id, clock_in, clock_out,
+        break_minutes, total_work_minutes, status, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
+    `).run(
+      id,
+      emp.branch_id || branchId,
+      employeeId,
+      shiftId,
+      now,
+      ["ABSENT", "LEAVE"].includes(code) ? now : null,
+      code,
+      notes || null,
+      now,
+      now
+    );
+    logAudit(emp.branch_id, "MARK_ATTENDANCE", "ATTENDANCE", id, { employeeId, status: code });
+    return db.prepare("SELECT * FROM staff_attendance WHERE id = ?").get(id);
+  },
   /**
    * Get attendance logs
    */
@@ -6840,7 +9021,21 @@ const staffRepository = {
       now,
       id
     );
-    logAudit(existing.branch_id, "UPDATE_USER", "USER", id, { ...userData });
+    logAudit(existing.branch_id, "UPDATE_USER", "USER", id, {
+      displayName: userData.displayName,
+      roleId: userData.roleId,
+      isActive: userData.isActive,
+      pinChanged: Boolean(userData.pin),
+      passwordChanged: Boolean(userData.password)
+    });
+    if (targetRoleId && targetRoleId !== existing.role_id) {
+      logAudit(existing.branch_id, "PERMISSION_CHANGE", "USER", id, {
+        username: existing.username,
+        fromRoleId: existing.role_id,
+        toRoleId: targetRoleId,
+        toRole: (targetRole == null ? void 0 : targetRole.code) || null
+      });
+    }
     return db.prepare(`
       SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name,
              u.is_active, r.name as role_name, r.code as role_code
@@ -6882,6 +9077,13 @@ function registerStaffIpcHandlers() {
     const branchId = getActiveBranchId(params.branchId);
     return staffRepository.getAttendanceLogs({ ...params, branchId });
   });
+  ipcMain.handle("staff:mark-attendance", async (_event, data) => {
+    requirePermission("staff:manage");
+    return staffRepository.markAttendance({
+      ...data,
+      branchId: getActiveBranchId(data.branchId)
+    });
+  });
   ipcMain.handle("staff:get-shifts", async (_event, branchId) => {
     return staffRepository.getShifts(getActiveBranchId(branchId));
   });
@@ -6916,6 +9118,36 @@ function registerStaffIpcHandlers() {
 }
 function uuid() {
   return crypto$1.randomUUID();
+}
+function notifyEnabled(db) {
+  try {
+    const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'notify_customer_on_status'").get();
+    return (row == null ? void 0 : row.setting_value) !== "0";
+  } catch {
+    return true;
+  }
+}
+function notifyDeliveryCustomer(delivery, message) {
+  var _a;
+  if (!delivery) return;
+  const db = getDb();
+  if (!notifyEnabled(db)) return;
+  let customerId = null;
+  try {
+    const order = db.prepare("SELECT customer_id FROM orders WHERE id = ?").get(delivery.order_id);
+    customerId = (order == null ? void 0 : order.customer_id) || null;
+    if (!customerId && delivery.customer_phone) {
+      customerId = ((_a = db.prepare("SELECT id FROM customers WHERE phone = ?").get(delivery.customer_phone)) == null ? void 0 : _a.id) || null;
+    }
+  } catch (e) {
+  }
+  if (!customerId) return;
+  customerRepository.logNotification({
+    customerId,
+    orderId: delivery.order_id,
+    channel: "IN_APP",
+    message
+  });
 }
 const deliveryRepository = {
   // =========================================================================
@@ -7127,6 +9359,13 @@ const deliveryRepository = {
       query += " AND d.rider_id = ?";
       params.push(filters.riderId);
     }
+    if (filters.assignedToUserId || filters.assignedToName) {
+      query += ` AND (
+        EXISTS (SELECT 1 FROM riders rx WHERE rx.id = d.rider_id AND rx.user_id = ?)
+        OR LOWER(COALESCE(r.name, '')) = LOWER(?)
+      )`;
+      params.push(filters.assignedToUserId || "", filters.assignedToName || "");
+    }
     if (filters.date) {
       query += " AND d.created_at LIKE ?";
       params.push(`${filters.date}%`);
@@ -7162,6 +9401,15 @@ const deliveryRepository = {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(data.orderId);
     if (!order) throw new Error(`Order not found: ${data.orderId}`);
+    if (data.zoneId) {
+      const zone = db.prepare("SELECT * FROM delivery_zones WHERE id = ?").get(data.zoneId);
+      if (zone && zone.is_active === 0) throw new Error(`Delivery zone "${zone.name}" is inactive.`);
+      if (zone && (zone.min_order_cents || 0) > (order.total_cents || 0)) {
+        throw new Error(
+          `Minimum order for ${zone.name} is $${((zone.min_order_cents || 0) / 100).toFixed(2)}.`
+        );
+      }
+    }
     const codAmountCents = data.codAmountCents !== void 0 ? parseInt(data.codAmountCents, 10) : Math.max(0, order.total_cents - (order.paid_cents || 0));
     db.prepare(`
       INSERT INTO deliveries (
@@ -7209,7 +9457,9 @@ const deliveryRepository = {
       `).run(deliveryId, now, riderId);
     });
     assignTx();
-    return this.getDeliveryById(deliveryId);
+    const assigned = this.getDeliveryById(deliveryId);
+    notifyDeliveryCustomer(assigned, `Rider ${assigned.rider_name || ""} assigned to your order ${assigned.order_number}.`);
+    return assigned;
   },
   dispatchDelivery(deliveryId) {
     const db = getDb();
@@ -7235,7 +9485,9 @@ const deliveryRepository = {
       `).run(now, delivery.order_id);
     });
     dispatchTx();
-    return this.getDeliveryById(deliveryId);
+    const dispatched = this.getDeliveryById(deliveryId);
+    notifyDeliveryCustomer(dispatched, `Order ${dispatched.order_number} is out for delivery.`);
+    return dispatched;
   },
   completeDelivery(deliveryId, { codCollectedCents = null } = {}) {
     const db = getDb();
@@ -7266,7 +9518,9 @@ const deliveryRepository = {
       `).run(now, delivery.order_id);
     });
     completeTx();
-    return this.getDeliveryById(deliveryId);
+    const completed = this.getDeliveryById(deliveryId);
+    notifyDeliveryCustomer(completed, `Order ${completed.order_number} was delivered.`);
+    return completed;
   },
   failDelivery(deliveryId, reason) {
     const db = getDb();
@@ -7288,7 +9542,9 @@ const deliveryRepository = {
       }
     });
     failTx();
-    return this.getDeliveryById(deliveryId);
+    const failed = this.getDeliveryById(deliveryId);
+    notifyDeliveryCustomer(failed, `Delivery of ${failed.order_number} failed: ${reason || "unsuccessful"}.`);
+    return failed;
   },
   // =========================================================================
   // 4. CASH-ON-DELIVERY (COD) SETTLEMENT
@@ -7440,12 +9696,17 @@ function registerDeliveryHandlers() {
     return deliveryRepository.updateRider(id, data);
   });
   ipcMain.handle("delivery:update-rider-status", async (_event, { id, status }) => {
-    requireAnyPermission(["delivery:manage", "pos:create_order"]);
+    requireAnyPermission(["delivery:manage", "delivery:assigned"]);
     return deliveryRepository.updateRiderStatus(id, status);
   });
   ipcMain.handle("delivery:get-deliveries", async (_event, { branchId, filters } = {}) => {
-    requireSession();
-    return deliveryRepository.getDeliveries(getActiveBranchId(branchId), filters);
+    const session = requireSession();
+    const nextFilters = { ...filters || {} };
+    if (session.roleCode === "delivery_rider") {
+      nextFilters.assignedToUserId = session.id;
+      nextFilters.assignedToName = session.displayName;
+    }
+    return deliveryRepository.getDeliveries(getActiveBranchId(branchId), nextFilters);
   });
   ipcMain.handle("delivery:get-delivery-by-id", async (_event, id) => {
     requireSession();
@@ -7460,15 +9721,15 @@ function registerDeliveryHandlers() {
     return deliveryRepository.assignRider(deliveryId, riderId);
   });
   ipcMain.handle("delivery:dispatch", async (_event, deliveryId) => {
-    requireAnyPermission(["delivery:manage", "pos:create_order"]);
+    requireAnyPermission(["delivery:manage", "delivery:assigned"]);
     return deliveryRepository.dispatchDelivery(deliveryId);
   });
   ipcMain.handle("delivery:complete", async (_event, { deliveryId, codCollectedCents }) => {
-    requireAnyPermission(["delivery:manage", "pos:create_order"]);
+    requireAnyPermission(["delivery:manage", "delivery:assigned"]);
     return deliveryRepository.completeDelivery(deliveryId, { codCollectedCents });
   });
   ipcMain.handle("delivery:fail", async (_event, { deliveryId, reason }) => {
-    requireAnyPermission(["delivery:manage", "pos:create_order"]);
+    requireAnyPermission(["delivery:manage", "delivery:assigned"]);
     return deliveryRepository.failDelivery(deliveryId, reason);
   });
   ipcMain.handle("delivery:get-rider-pending-cod", async (_event, riderId) => {
@@ -7493,6 +9754,42 @@ function registerDeliveryHandlers() {
     return deliveryRepository.getSummary(getActiveBranchId(branchId));
   });
 }
+function dateRange(filter = {}) {
+  return {
+    startDate: filter.startDate || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10),
+    endDate: filter.endDate || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
+  };
+}
+function resolveBranch(db, branchId, filter = {}) {
+  var _a;
+  if (filter.branchId === "ALL" || branchId === "ALL") return null;
+  const id = filter.branchId || branchId;
+  if (id) return id;
+  return ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id) || null;
+}
+function orderScope(filter = {}, alias = "o") {
+  const { startDate, endDate } = dateRange(filter);
+  const clauses = [
+    `${alias}.status NOT IN ('DRAFT', 'CANCELLED')`,
+    `COALESCE(${alias}.paid_cents, 0) > 0`,
+    `${alias}.created_at >= ?`,
+    `${alias}.created_at <= ? || 'T23:59:59.999Z'`
+  ];
+  const params = [startDate, endDate];
+  if (filter.orderType) {
+    clauses.push(`${alias}.order_type = ?`);
+    params.push(filter.orderType);
+  }
+  if (filter.cashierId) {
+    clauses.push(`${alias}.cashier_id = ?`);
+    params.push(filter.cashierId);
+  }
+  if (filter.paymentMethod) {
+    clauses.push(`EXISTS (SELECT 1 FROM payments pmt WHERE pmt.order_id = ${alias}.id AND pmt.status = 'COMPLETED' AND pmt.payment_method = ?)`);
+    params.push(filter.paymentMethod);
+  }
+  return { startDate, endDate, where: clauses.join(" AND "), params };
+}
 const reportsRepository = {
   /**
    * Get Comprehensive Sales Summary for a Date Range
@@ -7500,71 +9797,63 @@ const reportsRepository = {
    * @param {{ startDate?: string, endDate?: string }} filter 
    */
   getSalesSummary(branchId, filter = {}) {
-    var _a;
     const db = getDb();
-    const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
-    const startDate = filter.startDate || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-    const endDate = filter.endDate || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const scope = orderScope(filter);
+    const branchSql = targetBranch ? "o.branch_id = ? AND " : "";
+    const params = targetBranch ? [targetBranch, ...scope.params] : scope.params;
     const overall = db.prepare(`
-        SELECT
-          COUNT(*) as total_orders,
-          COALESCE(SUM(total_cents), 0) as total_sales_cents,
-          COALESCE(SUM(subtotal_cents), 0) as subtotal_cents,
-          COALESCE(SUM(discount_cents), 0) as total_discount_cents,
-          COALESCE(SUM(tax_cents), 0) as total_tax_cents,
-          COALESCE(SUM(service_charge_cents), 0) as total_service_charge_cents,
-          COALESCE(SUM(delivery_charge_cents), 0) as total_delivery_charge_cents,
-          COALESCE(AVG(total_cents), 0) as average_order_cents
-        FROM orders
-        WHERE branch_id = ?
-          AND status IN ('COMPLETED', 'DELIVERED', 'SERVED')
-          AND created_at >= ?
-          AND created_at <= ? || 'T23:59:59.999Z'
-      `).get(targetBranch, startDate, endDate);
+      SELECT
+        COUNT(*) as total_orders,
+        COALESCE(SUM(total_cents), 0) as total_sales_cents,
+        COALESCE(SUM(total_cents), 0) as gross_sales_cents,
+        COALESCE(SUM(COALESCE(refunded_cents, 0)), 0) as refund_cents,
+        COALESCE(SUM(total_cents), 0) - COALESCE(SUM(COALESCE(refunded_cents, 0)), 0) as net_sales_cents,
+        COALESCE(SUM(subtotal_cents), 0) as subtotal_cents,
+        COALESCE(SUM(discount_cents), 0) as total_discount_cents,
+        COALESCE(SUM(tax_cents), 0) as total_tax_cents,
+        COALESCE(SUM(service_charge_cents), 0) as total_service_charge_cents,
+        COALESCE(SUM(delivery_charge_cents), 0) as total_delivery_charge_cents,
+        COALESCE(AVG(total_cents), 0) as average_order_cents
+      FROM orders o
+      WHERE ${branchSql}${scope.where}
+    `).get(...params);
     const byOrderType = db.prepare(`
-        SELECT
-          order_type,
-          COUNT(*) as order_count,
-          COALESCE(SUM(total_cents), 0) as total_cents
-        FROM orders
-        WHERE branch_id = ?
-          AND status IN ('COMPLETED', 'DELIVERED', 'SERVED')
-          AND created_at >= ?
-          AND created_at <= ? || 'T23:59:59.999Z'
-        GROUP BY order_type
-      `).all(targetBranch, startDate, endDate);
+      SELECT order_type, COUNT(*) as order_count, COALESCE(SUM(total_cents), 0) as total_cents
+      FROM orders o
+      WHERE ${branchSql}${scope.where}
+      GROUP BY order_type
+    `).all(...params);
     const byPaymentMethod = db.prepare(`
-        SELECT
-          p.payment_method,
-          COUNT(p.id) as payment_count,
-          COALESCE(SUM(p.amount_cents), 0) as total_cents
-        FROM payments p
-        JOIN orders o ON p.order_id = o.id
-        WHERE o.branch_id = ?
-          AND p.status = 'COMPLETED'
-          AND p.created_at >= ?
-          AND p.created_at <= ? || 'T23:59:59.999Z'
-        GROUP BY p.payment_method
-      `).all(targetBranch, startDate, endDate);
+      SELECT p.payment_method, COUNT(p.id) as payment_count, COALESCE(SUM(p.amount_cents), 0) as total_cents
+      FROM payments p
+      JOIN orders o ON p.order_id = o.id
+      WHERE ${branchSql}p.status = 'COMPLETED' AND ${scope.where}
+      GROUP BY p.payment_method
+    `).all(...params);
+    const byCashier = db.prepare(`
+      SELECT COALESCE(u.display_name, 'Unassigned') as cashier_name, COUNT(o.id) as order_count,
+             COALESCE(SUM(o.total_cents), 0) as total_cents
+      FROM orders o
+      LEFT JOIN users u ON o.cashier_id = u.id
+      WHERE ${branchSql}${scope.where}
+      GROUP BY o.cashier_id
+      ORDER BY total_cents DESC
+    `).all(...params);
     const dailyTimeline = db.prepare(`
-        SELECT
-          substr(created_at, 1, 10) as date,
-          COUNT(*) as order_count,
-          COALESCE(SUM(total_cents), 0) as total_cents
-        FROM orders
-        WHERE branch_id = ?
-          AND status IN ('COMPLETED', 'DELIVERED', 'SERVED')
-          AND created_at >= ?
-          AND created_at <= ? || 'T23:59:59.999Z'
-        GROUP BY substr(created_at, 1, 10)
-        ORDER BY date ASC
-      `).all(targetBranch, startDate, endDate);
+      SELECT substr(created_at, 1, 10) as date, COUNT(*) as order_count, COALESCE(SUM(total_cents), 0) as total_cents
+      FROM orders o
+      WHERE ${branchSql}${scope.where}
+      GROUP BY substr(created_at, 1, 10)
+      ORDER BY date ASC
+    `).all(...params);
     return {
-      startDate,
-      endDate,
+      startDate: scope.startDate,
+      endDate: scope.endDate,
       overall,
       byOrderType,
       byPaymentMethod,
+      byCashier,
       dailyTimeline
     };
   },
@@ -7572,51 +9861,44 @@ const reportsRepository = {
    * Top Selling & Slow Moving Items Report
    */
   getProductPerformance(branchId, filter = {}) {
-    var _a;
     const db = getDb();
-    const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
-    const startDate = filter.startDate || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-    const endDate = filter.endDate || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const scope = orderScope(filter);
+    const branchSql = targetBranch ? "o.branch_id = ? AND " : "";
+    const params = targetBranch ? [targetBranch, ...scope.params] : scope.params;
+    if (filter.categoryId) ;
+    const catFilter = filter.categoryId ? "AND p.category_id = ?" : "";
+    const catParams = filter.categoryId ? [...params, filter.categoryId] : params;
+    const productFilter = filter.productId ? "AND oi.product_id = ?" : "";
+    const itemParams = filter.productId ? [...catParams, filter.productId] : catParams;
     const items = db.prepare(`
-        SELECT
-          oi.product_id,
-          oi.item_name,
-          p.category_id,
-          c.name as category_name,
-          SUM(oi.quantity) as total_quantity_sold,
-          SUM(oi.total_cents) as total_revenue_cents,
-          p.cost_price_cents
-        FROM order_items oi
-        JOIN orders o ON oi.order_id = o.id
-        LEFT JOIN products p ON oi.product_id = p.id
-        LEFT JOIN categories c ON p.category_id = c.id
-        WHERE o.branch_id = ?
-          AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
-          AND o.created_at >= ?
-          AND o.created_at <= ? || 'T23:59:59.999Z'
-        GROUP BY oi.product_id, oi.item_name
-        ORDER BY total_quantity_sold DESC
-      `).all(targetBranch, startDate, endDate);
+      SELECT
+        oi.product_id, oi.item_name, p.category_id, c.name as category_name,
+        SUM(oi.quantity) as total_quantity_sold,
+        SUM(oi.total_cents) as total_revenue_cents,
+        p.cost_price_cents
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      LEFT JOIN products p ON oi.product_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE ${branchSql}${scope.where} ${catFilter} ${productFilter}
+      GROUP BY oi.product_id, oi.item_name
+      ORDER BY total_quantity_sold DESC
+    `).all(...itemParams);
     const categoryBreakdown = db.prepare(`
-        SELECT
-          COALESCE(c.name, 'Uncategorized') as category_name,
-          SUM(oi.quantity) as total_quantity_sold,
-          SUM(oi.total_cents) as total_revenue_cents
-        FROM order_items oi
-        JOIN orders o ON oi.order_id = o.id
-        LEFT JOIN products p ON oi.product_id = p.id
-        LEFT JOIN categories c ON p.category_id = c.id
-        WHERE o.branch_id = ?
-          AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
-          AND o.created_at >= ?
-          AND o.created_at <= ? || 'T23:59:59.999Z'
-        GROUP BY c.id, c.name
-        ORDER BY total_revenue_cents DESC
-      `).all(targetBranch, startDate, endDate);
-    return {
-      items,
-      categoryBreakdown
-    };
+      SELECT
+        COALESCE(c.name, 'Uncategorized') as category_name,
+        SUM(oi.quantity) as total_quantity_sold,
+        SUM(oi.total_cents) as total_revenue_cents
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      LEFT JOIN products p ON oi.product_id = p.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE ${branchSql}${scope.where} ${catFilter}
+      GROUP BY c.id, c.name
+      ORDER BY total_revenue_cents DESC
+    `).all(...catParams);
+    return { items, categoryBreakdown };
   },
   /**
    * Hourly Peak Rush Breakdown (00:00 to 23:00)
@@ -7634,7 +9916,8 @@ const reportsRepository = {
           COALESCE(SUM(total_cents), 0) as total_cents
         FROM orders
         WHERE branch_id = ?
-          AND status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+          AND status NOT IN ('DRAFT', 'CANCELLED')
+          AND COALESCE(paid_cents, 0) > 0
           AND created_at >= ?
           AND created_at <= ? || 'T23:59:59.999Z'
         GROUP BY hour
@@ -7671,7 +9954,8 @@ const reportsRepository = {
           COALESCE(SUM(tax_cents), 0) as total_tax_cents
         FROM orders
         WHERE branch_id = ?
-          AND status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+          AND status NOT IN ('DRAFT', 'CANCELLED')
+          AND COALESCE(paid_cents, 0) > 0
           AND created_at >= ?
           AND created_at <= ? || 'T23:59:59.999Z'
       `).get(targetBranch, startDate, endDate);
@@ -7749,28 +10033,60 @@ const reportsRepository = {
   /**
    * System Audit Logs History
    */
-  getAuditLogs(branchId, limit = 100) {
+  getAuditLogs(branchId, options = {}) {
     var _a;
     const db = getDb();
-    const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
-    return db.prepare(`
-        SELECT
-          a.*,
-          u.username,
-          u.display_name as user_display_name
-        FROM audit_logs a
-        LEFT JOIN users u ON a.user_id = u.id
-        WHERE a.branch_id = ? OR a.branch_id IS NULL
-        ORDER BY a.created_at DESC
-        LIMIT ?
-      `).all(targetBranch, limit);
+    const limit = typeof options === "number" ? options : options.limit || 200;
+    const fullAccess = Boolean(options.fullAccess);
+    const action = options.action;
+    const entityType = options.entityType;
+    const startDate = options.startDate;
+    const endDate = options.endDate;
+    const targetBranch = options.branchId === "ALL" ? null : branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
+    let sql = `
+      SELECT
+        a.id, a.branch_id, a.user_id, a.action, a.entity_type, a.entity_id,
+        a.details_json, a.created_at,
+        u.username,
+        u.display_name as user_display_name,
+        b.name as branch_name
+      FROM audit_logs a
+      LEFT JOIN users u ON a.user_id = u.id
+      LEFT JOIN branches b ON a.branch_id = b.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (targetBranch) {
+      sql += " AND (a.branch_id = ? OR a.branch_id IS NULL)";
+      params.push(targetBranch);
+    }
+    if (action) {
+      sql += " AND a.action = ?";
+      params.push(action);
+    }
+    if (entityType) {
+      sql += " AND a.entity_type = ?";
+      params.push(entityType);
+    }
+    if (startDate) {
+      sql += " AND a.created_at >= ?";
+      params.push(startDate);
+    }
+    if (endDate) {
+      sql += " AND a.created_at <= ? || 'T23:59:59.999Z'";
+      params.push(endDate);
+    }
+    sql += " ORDER BY a.created_at DESC LIMIT ?";
+    params.push(limit);
+    const rows = db.prepare(sql).all(...params);
+    return rows.map((row) => redactAuditRow(row, { fullAccess }));
   },
   getStaffSales(branchId, filter = {}) {
     var _a;
     const db = getDb();
     const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     const { startDate, endDate } = dateRange(filter);
-    return db.prepare(`
+    const sales = db.prepare(`
       SELECT
         u.id as user_id,
         u.display_name,
@@ -7783,12 +10099,28 @@ const reportsRepository = {
       LEFT JOIN roles r ON u.role_id = r.id
       LEFT JOIN orders o ON o.cashier_id = u.id
         AND o.branch_id = ?
-        AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+        AND o.status NOT IN ('DRAFT', 'CANCELLED')
+        AND COALESCE(o.paid_cents, 0) > 0
         AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z'
       WHERE u.branch_id = ? OR u.branch_id IS NULL
       GROUP BY u.id
       ORDER BY sales_cents DESC
     `).all(targetBranch, startDate, endDate, targetBranch);
+    const attendance = db.prepare(`
+      SELECT
+        e.id as employee_id,
+        TRIM(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) as employee_name,
+        sa.status,
+        COUNT(*) as day_count
+      FROM staff_attendance sa
+      JOIN employees e ON sa.employee_id = e.id
+      WHERE sa.branch_id = ?
+        AND substr(sa.created_at, 1, 10) >= ?
+        AND substr(sa.created_at, 1, 10) <= ?
+      GROUP BY e.id, sa.status
+      ORDER BY employee_name, sa.status
+    `).all(targetBranch, startDate, endDate);
+    return { sales, attendance };
   },
   getCustomerReport(branchId, filter = {}) {
     var _a;
@@ -7803,7 +10135,8 @@ const reportsRepository = {
         MAX(o.created_at) as last_order_at
       FROM customers c
       LEFT JOIN orders o ON o.customer_id = c.id
-        AND o.status IN ('COMPLETED', 'DELIVERED', 'SERVED')
+        AND o.status NOT IN ('DRAFT', 'CANCELLED')
+        AND COALESCE(o.paid_cents, 0) > 0
         AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z'
       WHERE c.branch_id = ? OR c.branch_id IS NULL
       GROUP BY c.id
@@ -7852,25 +10185,44 @@ const reportsRepository = {
       GROUP BY r.id
       ORDER BY delivered_count DESC
     `).all(startDate, endDate, targetBranch);
-    return { riders };
+    const byStatus = db.prepare(`
+      SELECT d.status, COUNT(*) as order_count,
+             COALESCE(SUM(d.cod_collected_cents), 0) as cash_collected_cents
+      FROM deliveries d
+      WHERE d.branch_id = ?
+        AND d.created_at >= ? AND d.created_at <= ? || 'T23:59:59.999Z'
+      GROUP BY d.status
+    `).all(targetBranch, startDate, endDate);
+    return { riders, byStatus };
   },
-  getInventoryReport(branchId) {
+  getInventoryReport(branchId, filter = {}) {
     var _a;
     const db = getDb();
     const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
+    const { startDate, endDate } = dateRange(filter);
     const items = db.prepare(`
       SELECT
         i.id, i.name, i.current_stock, i.minimum_level, i.cost_per_unit_cents, i.image_url,
         u.abbreviation as unit,
-        ROUND(i.current_stock * COALESCE(i.cost_per_unit_cents, 0), 0) as valuation_cents,
+        ROUND(i.current_stock * COALESCE(i.avg_cost_cents, i.cost_per_unit_cents, 0), 0) as valuation_cents,
         CASE WHEN i.current_stock <= i.minimum_level THEN 1 ELSE 0 END as is_low
       FROM inventory_items i
       LEFT JOIN inventory_units u ON i.unit_id = u.id
       WHERE i.branch_id = ? OR i.branch_id IS NULL
       ORDER BY is_low DESC, i.name ASC
     `).all(targetBranch);
+    const movement = db.prepare(`
+      SELECT sm.movement_type, COALESCE(i.name, sm.inventory_item_id) as item_name,
+             SUM(sm.quantity) as quantity, COUNT(*) as movement_count
+      FROM stock_movements sm
+      LEFT JOIN inventory_items i ON sm.inventory_item_id = i.id
+      WHERE (sm.branch_id = ? OR sm.branch_id IS NULL)
+        AND sm.created_at >= ? AND sm.created_at <= ? || 'T23:59:59.999Z'
+      GROUP BY sm.movement_type, i.name
+      ORDER BY movement_count DESC
+    `).all(targetBranch, startDate, endDate);
     const totalValuation = items.reduce((s, i) => s + (i.valuation_cents || 0), 0);
-    return { items, totalValuationCents: totalValuation, lowStockCount: items.filter((i) => i.is_low).length };
+    return { items, movement, totalValuationCents: totalValuation, lowStockCount: items.filter((i) => i.is_low).length };
   },
   getExpenseReport(branchId, filter = {}) {
     var _a;
@@ -7909,9 +10261,9 @@ const reportsRepository = {
     const db = getDb();
     const targetBranch = branchId || ((_a = db.prepare("SELECT id FROM branches LIMIT 1").get()) == null ? void 0 : _a.id);
     const { startDate, endDate } = dateRange(filter);
-    return db.prepare(`
+    const refunds = db.prepare(`
       SELECT
-        rf.id, rf.amount_cents, rf.reason, rf.restock, rf.created_at,
+        rf.id, rf.amount_cents, rf.reason, rf.restock, rf.created_at, rf.refund_method,
         o.order_number, u.display_name as cashier_name
       FROM refunds rf
       LEFT JOIN orders o ON rf.order_id = o.id
@@ -7920,14 +10272,205 @@ const reportsRepository = {
         AND rf.created_at >= ? AND rf.created_at <= ? || 'T23:59:59.999Z'
       ORDER BY rf.created_at DESC
     `).all(targetBranch, startDate, endDate);
+    let items = [];
+    try {
+      items = db.prepare(`
+        SELECT ri.refund_id, ri.quantity, ri.amount_cents, oi.item_name
+        FROM refund_items ri
+        LEFT JOIN order_items oi ON ri.order_item_id = oi.id
+        WHERE ri.refund_id IN (SELECT id FROM refunds WHERE branch_id = ? AND created_at >= ? AND created_at <= ? || 'T23:59:59.999Z')
+      `).all(targetBranch, startDate, endDate);
+    } catch (e) {
+    }
+    const grouped = {};
+    for (const it of items) {
+      if (!grouped[it.refund_id]) grouped[it.refund_id] = [];
+      grouped[it.refund_id].push(it);
+    }
+    return refunds.map((r) => ({
+      ...r,
+      returned_items: (grouped[r.id] || []).map((i) => `${i.quantity}× ${i.item_name || "item"}`).join(", ")
+    }));
+  },
+  getFoodCostReport(branchId, filter = {}) {
+    const db = getDb();
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const rows = db.prepare(`
+      SELECT
+        p.id as product_id,
+        p.name as product_name,
+        COALESCE(cat.name, 'Uncategorized') as category_name,
+        p.base_price_cents as selling_price_cents,
+        COALESCE(rv.food_cost_cents, 0) as recipe_cost_cents,
+        CASE WHEN p.base_price_cents > 0
+          THEN ROUND(COALESCE(rv.food_cost_cents, 0) * 100.0 / p.base_price_cents, 1)
+          ELSE 0 END as food_cost_percent
+      FROM products p
+      LEFT JOIN categories cat ON p.category_id = cat.id
+      LEFT JOIN recipes r ON r.product_id = p.id AND COALESCE(r.is_active, 1) = 1
+      LEFT JOIN recipe_versions rv ON rv.recipe_id = r.id AND rv.version = (
+        SELECT MAX(v.version) FROM recipe_versions v WHERE v.recipe_id = r.id
+      )
+      WHERE p.is_active = 1 AND (p.branch_id = ? OR p.branch_id IS NULL OR ? IS NULL)
+      ORDER BY food_cost_percent DESC, p.name ASC
+    `).all(targetBranch, targetBranch);
+    return { items: rows };
+  },
+  getPurchaseReport(branchId, filter = {}) {
+    const db = getDb();
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const { startDate, endDate } = dateRange(filter);
+    const vendorSql = filter.supplierId ? "AND po.supplier_id = ?" : "";
+    const params = [targetBranch, startDate, endDate];
+    if (filter.supplierId) params.push(filter.supplierId);
+    const items = db.prepare(`
+      SELECT
+        po.po_number, po.status, po.created_at as order_date, po.received_at as received_date,
+        s.company_name as vendor_name,
+        COALESCE(i.name, 'Item') as item_name,
+        poi.quantity, poi.unit_cost_cents, poi.total_cents
+      FROM purchase_order_items poi
+      JOIN purchase_orders po ON poi.po_id = po.id
+      LEFT JOIN suppliers s ON po.supplier_id = s.id
+      LEFT JOIN inventory_items i ON poi.inventory_item_id = i.id
+      WHERE po.branch_id = ?
+        AND po.created_at >= ?
+        AND po.created_at <= ? || 'T23:59:59.999Z'
+        ${vendorSql}
+      ORDER BY po.created_at DESC
+    `).all(...params);
+    const totalCents = items.reduce((s, r) => s + (r.total_cents || 0), 0);
+    return { items, totalCents };
+  },
+  getVendorStatementReport(branchId, filter = {}) {
+    const db = getDb();
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const { startDate, endDate } = dateRange(filter);
+    const suppliers = db.prepare(`
+      SELECT s.id, s.company_name as name,
+        COALESCE((SELECT SUM(total_cents) FROM purchase_orders po WHERE po.supplier_id = s.id AND po.branch_id = ?), 0) as invoices_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM purchase_returns pr WHERE pr.supplier_id = s.id), 0) as returns_cents,
+        COALESCE((SELECT SUM(amount_cents) FROM vendor_payments vp WHERE vp.supplier_id = s.id), 0) as payments_cents
+      FROM suppliers s
+      WHERE s.branch_id = ? OR s.branch_id IS NULL
+      ORDER BY name
+    `).all(targetBranch, targetBranch);
+    const rows = suppliers.map((s) => ({
+      ...s,
+      outstanding_cents: (s.invoices_cents || 0) - (s.returns_cents || 0) - (s.payments_cents || 0)
+    }));
+    return { vendors: rows, startDate, endDate };
+  },
+  getCashierReport(branchId, filter = {}) {
+    const db = getDb();
+    const targetBranch = resolveBranch(db, branchId, filter);
+    const { startDate, endDate } = dateRange(filter);
+    const branchOrd = targetBranch ? "AND o.branch_id = ?" : "";
+    const branchPay = targetBranch ? "AND p.branch_id = ?" : "";
+    const extra = targetBranch ? [targetBranch] : [];
+    const cashiers = db.prepare(`
+      SELECT
+        u.id as user_id,
+        u.display_name,
+        (SELECT COUNT(*) FROM orders o
+          WHERE o.cashier_id = u.id AND o.status NOT IN ('DRAFT', 'CANCELLED')
+            AND COALESCE(o.paid_cents, 0) > 0
+            AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z' ${branchOrd}) as order_count,
+        (SELECT COALESCE(SUM(o.total_cents), 0) FROM orders o
+          WHERE o.cashier_id = u.id AND o.status NOT IN ('DRAFT', 'CANCELLED')
+            AND COALESCE(o.paid_cents, 0) > 0
+            AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z' ${branchOrd}) as sales_cents,
+        (SELECT COALESCE(SUM(o.refunded_cents), 0) FROM orders o
+          WHERE o.cashier_id = u.id
+            AND o.created_at >= ? AND o.created_at <= ? || 'T23:59:59.999Z' ${branchOrd}) as refund_cents,
+        (SELECT COALESCE(SUM(p.amount_cents), 0) FROM payments p
+          WHERE p.cashier_id = u.id AND p.status = 'COMPLETED' AND p.payment_method = 'CASH'
+            AND p.created_at >= ? AND p.created_at <= ? || 'T23:59:59.999Z' ${branchPay}) as cash_cents,
+        (SELECT COALESCE(SUM(p.amount_cents), 0) FROM payments p
+          WHERE p.cashier_id = u.id AND p.status = 'COMPLETED'
+            AND p.payment_method IN ('CARD', 'CREDIT_CARD', 'DEBIT_CARD')
+            AND p.created_at >= ? AND p.created_at <= ? || 'T23:59:59.999Z' ${branchPay}) as card_cents
+      FROM users u
+      WHERE u.is_active = 1
+      ORDER BY sales_cents DESC
+    `).all(
+      startDate,
+      endDate,
+      ...extra,
+      startDate,
+      endDate,
+      ...extra,
+      startDate,
+      endDate,
+      ...extra,
+      startDate,
+      endDate,
+      ...extra,
+      startDate,
+      endDate,
+      ...extra
+    );
+    const sessions = db.prepare(`
+      SELECT cs.id, u.display_name, cs.opening_balance_cents as opening_float_cents, cs.expected_cash_cents,
+             cs.counted_cash_cents, cs.variance_cents, cs.status, cs.opened_at, cs.closed_at
+      FROM cash_sessions cs
+      LEFT JOIN users u ON cs.user_id = u.id
+      WHERE ${targetBranch ? "cs.branch_id = ? AND " : ""}
+            cs.opened_at >= ? AND cs.opened_at <= ? || 'T23:59:59.999Z'
+      ORDER BY cs.opened_at DESC
+    `).all(...targetBranch ? [targetBranch, startDate, endDate] : [startDate, endDate]);
+    return { cashiers: cashiers.filter((c) => (c.order_count || 0) > 0 || (c.cash_cents || 0) > 0), sessions };
+  },
+  getBranchComparison(filter = {}) {
+    const db = getDb();
+    const scope = orderScope(filter);
+    const sales = db.prepare(`
+      SELECT b.id as branch_id, b.name as branch_name,
+        COUNT(o.id) as order_count,
+        COALESCE(SUM(o.total_cents), 0) as sales_cents,
+        COALESCE(SUM(o.discount_cents), 0) as discount_cents
+      FROM branches b
+      LEFT JOIN orders o ON o.branch_id = b.id AND ${scope.where}
+      GROUP BY b.id
+      ORDER BY sales_cents DESC
+    `).all(...scope.params);
+    const { startDate, endDate } = dateRange(filter);
+    const expenses = db.prepare(`
+      SELECT branch_id, COALESCE(SUM(amount_cents), 0) as expenses_cents
+      FROM expenses
+      WHERE expense_date >= ? AND expense_date <= ?
+      GROUP BY branch_id
+    `).all(startDate, endDate);
+    const cogs = db.prepare(`
+      SELECT branch_id, COALESCE(SUM(quantity * unit_cost_cents), 0) as cogs_cents
+      FROM stock_movements
+      WHERE movement_type = 'SALE_DEDUCTION' AND created_at >= ? AND created_at <= ? || 'T23:59:59.999Z'
+      GROUP BY branch_id
+    `).all(startDate, endDate);
+    const expMap = Object.fromEntries(expenses.map((e) => [e.branch_id, e.expenses_cents]));
+    const cogsMap = Object.fromEntries(cogs.map((e) => [e.branch_id, e.cogs_cents]));
+    const rows = sales.map((r) => {
+      const cost = cogsMap[r.branch_id] || 0;
+      const exp = expMap[r.branch_id] || 0;
+      return {
+        ...r,
+        cogs_cents: cost,
+        expenses_cents: exp,
+        profit_cents: (r.sales_cents || 0) - cost - exp
+      };
+    });
+    return { rows };
+  },
+  getLookups() {
+    const db = getDb();
+    return {
+      branches: db.prepare("SELECT id, name FROM branches ORDER BY name").all(),
+      cashiers: db.prepare("SELECT id, display_name FROM users WHERE is_active = 1 ORDER BY display_name").all(),
+      suppliers: db.prepare("SELECT id, company_name as name FROM suppliers ORDER BY company_name").all(),
+      categories: db.prepare("SELECT id, name FROM categories WHERE is_active = 1 ORDER BY name").all()
+    };
   }
 };
-function dateRange(filter = {}) {
-  return {
-    startDate: filter.startDate || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10),
-    endDate: filter.endDate || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
-  };
-}
 function registerReportSettingsHandlers() {
   ipcMain.handle("reports:get-sales-summary", async (_event, { branchId, filter } = {}) => {
     requirePermission("reports:view");
@@ -7949,9 +10492,14 @@ function registerReportSettingsHandlers() {
     requirePermission("reports:view");
     return reportsRepository.getVoidAndRefundAudits(getActiveBranchId(branchId), filter);
   });
-  ipcMain.handle("reports:get-audit-logs", async (_event, { branchId, limit } = {}) => {
-    requirePermission("reports:view");
-    return reportsRepository.getAuditLogs(getActiveBranchId(branchId), limit);
+  ipcMain.handle("reports:get-audit-logs", async (_event, params = {}) => {
+    var _a, _b;
+    const session = requireAnyPermission(["audit:view", "settings:manage"]);
+    const fullAccess = session.roleCode === "super_admin" || ((_a = session.permissions) == null ? void 0 : _a.includes("audit:view")) || ((_b = session.permissions) == null ? void 0 : _b.includes("settings:manage"));
+    return reportsRepository.getAuditLogs(getActiveBranchId(params.branchId), {
+      ...params,
+      fullAccess
+    });
   });
   ipcMain.handle("reports:get-staff-sales", async (_event, { branchId, filter } = {}) => {
     requirePermission("reports:view");
@@ -7969,9 +10517,9 @@ function registerReportSettingsHandlers() {
     requirePermission("reports:view");
     return reportsRepository.getDeliveryReport(getActiveBranchId(branchId), filter);
   });
-  ipcMain.handle("reports:get-inventory-report", async (_event, { branchId } = {}) => {
+  ipcMain.handle("reports:get-inventory-report", async (_event, { branchId, filter } = {}) => {
     requirePermission("reports:view");
-    return reportsRepository.getInventoryReport(getActiveBranchId(branchId));
+    return reportsRepository.getInventoryReport(getActiveBranchId(branchId), filter);
   });
   ipcMain.handle("reports:get-expense-report", async (_event, { branchId, filter } = {}) => {
     requirePermission("reports:view");
@@ -7985,19 +10533,70 @@ function registerReportSettingsHandlers() {
     requirePermission("reports:view");
     return reportsRepository.getRefundReport(getActiveBranchId(branchId), filter);
   });
+  ipcMain.handle("reports:get-food-cost", async (_event, { branchId, filter } = {}) => {
+    requirePermission("reports:view");
+    return reportsRepository.getFoodCostReport(getActiveBranchId(branchId), filter);
+  });
+  ipcMain.handle("reports:get-purchase-report", async (_event, { branchId, filter } = {}) => {
+    requirePermission("reports:view");
+    return reportsRepository.getPurchaseReport(getActiveBranchId(branchId), filter);
+  });
+  ipcMain.handle("reports:get-vendor-statement", async (_event, { branchId, filter } = {}) => {
+    requirePermission("reports:view");
+    return reportsRepository.getVendorStatementReport(getActiveBranchId(branchId), filter);
+  });
+  ipcMain.handle("reports:get-cashier-report", async (_event, { branchId, filter } = {}) => {
+    requirePermission("reports:view");
+    return reportsRepository.getCashierReport(getActiveBranchId(branchId), filter);
+  });
+  ipcMain.handle("reports:get-branch-comparison", async (_event, { filter } = {}) => {
+    requirePermission("reports:view");
+    return reportsRepository.getBranchComparison(filter);
+  });
+  ipcMain.handle("reports:get-lookups", async () => {
+    requirePermission("reports:view");
+    return reportsRepository.getLookups();
+  });
   ipcMain.handle("settings:get-all", async () => {
-    requireSession();
-    return settingsRepository.getAll();
+    var _a;
+    const session = requireSession();
+    const all = settingsRepository.getAll();
+    const canSecrets = session.roleCode === "super_admin" || ((_a = session.permissions) == null ? void 0 : _a.includes("settings:manage"));
+    if (!canSecrets) {
+      delete all.supabase_key;
+      delete all.supabase_anon_key;
+    }
+    return all;
   });
   ipcMain.handle("settings:get", async (_event, key) => {
-    requireSession();
+    var _a;
+    const session = requireSession();
+    if (/key|secret|token|password/i.test(String(key || "")) && session.roleCode !== "super_admin" && !((_a = session.permissions) == null ? void 0 : _a.includes("settings:manage"))) {
+      return null;
+    }
     return settingsRepository.get(key);
   });
   ipcMain.handle("settings:save-batch", async (_event, settingsObj) => {
-    requirePermission("settings:manage");
+    var _a;
+    const session = requireAnyPermission(["settings:manage", "settings:branch"]);
+    const locked = ["supabase_url", "supabase_key", "cloud_sync_enabled"];
     for (const [key, val] of Object.entries(settingsObj || {})) {
+      if (locked.includes(key) && session.roleCode !== "super_admin" && !((_a = session.permissions) == null ? void 0 : _a.includes("settings:manage"))) {
+        continue;
+      }
       settingsRepository.set(key, String(val));
     }
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, 'UPDATE_SETTINGS', 'SETTINGS', 'batch', ?, ?)
+    `).run(
+      crypto$1.randomUUID(),
+      session.branchId || null,
+      session.id,
+      JSON.stringify({ keys: Object.keys(settingsObj || {}), username: session.username }),
+      (/* @__PURE__ */ new Date()).toISOString()
+    );
     return settingsRepository.getAll();
   });
 }
@@ -8039,10 +10638,35 @@ function registerMediaHandlers() {
     return `data:image/${mime};base64,${buf.toString("base64")}`;
   });
 }
+function applyEnvPair(name, value) {
+  if (!name || value == null || value === "") return;
+  if (process.env[name] == null || process.env[name] === "") {
+    process.env[name] = String(value);
+  }
+}
+function loadBundledJson() {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, "sync-config.json"),
+    process.env.APP_ROOT && path.join(process.env.APP_ROOT, "build", "sync-config.json"),
+    path.join(process.cwd(), "build", "sync-config.json")
+  ].filter(Boolean);
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      applyEnvPair("SUPABASE_URL", parsed.SUPABASE_URL || parsed.url);
+      applyEnvPair("SUPABASE_KEY", parsed.SUPABASE_KEY || parsed.key);
+      break;
+    } catch {
+    }
+  }
+}
 function loadDotEnv() {
+  loadBundledJson();
   const candidates = [
     process.env.APP_ROOT && path.join(process.env.APP_ROOT, ".env"),
-    path.join(process.cwd(), ".env")
+    path.join(process.cwd(), ".env"),
+    process.resourcesPath && path.join(process.resourcesPath, ".env")
   ].filter(Boolean);
   for (const file of candidates) {
     try {
@@ -8058,14 +10682,23 @@ function loadDotEnv() {
         if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
           value = value.slice(1, -1);
         }
-        if (process.env[name] == null || process.env[name] === "") {
-          process.env[name] = value;
-        }
+        applyEnvPair(name, value);
       }
       break;
     } catch {
     }
   }
+}
+function ensureCloudSyncReady() {
+  loadDotEnv();
+  const url = (getMeta("supabase_url", "") || process.env.SUPABASE_URL || "").trim();
+  const key = (getMeta("supabase_key", "") || process.env.SUPABASE_KEY || "").trim();
+  if (!url || !key) return getSyncConfig();
+  if (getMeta("cloud_sync_disabled_by_user") === "1") return getSyncConfig();
+  setMeta("cloud_sync_enabled", "1");
+  if (!getMeta("supabase_url")) setMeta("supabase_url", url);
+  if (!getMeta("supabase_key")) setMeta("supabase_key", key);
+  return getSyncConfig();
 }
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -8108,7 +10741,10 @@ function getSyncConfig() {
   };
 }
 function saveSyncConfig({ enabled, url, key }) {
-  if (typeof enabled === "boolean") setMeta("cloud_sync_enabled", enabled ? "1" : "0");
+  if (typeof enabled === "boolean") {
+    setMeta("cloud_sync_enabled", enabled ? "1" : "0");
+    setMeta("cloud_sync_disabled_by_user", enabled ? "0" : "1");
+  }
   if (url !== void 0) setMeta("supabase_url", (url || "").trim());
   if (key !== void 0 && key !== "") setMeta("supabase_key", key.trim());
   return getSyncConfig();
@@ -28922,7 +31558,9 @@ const BATCH = 40;
 const MAX_RETRY = 8;
 let mainWindow = null;
 let timer = null;
+let soonTimer = null;
 let running = false;
+let hooksBound = false;
 let lastStatus = {
   online: false,
   enabled: false,
@@ -28979,48 +31617,59 @@ function markOutbox(id, status, errorMessage = null) {
 }
 async function pushOutbox(client, cfg) {
   const db = getDb();
-  const rows = db.prepare(`
-    SELECT * FROM sync_outbox
-    WHERE status IN ('PENDING', 'FAILED') AND retry_count < ?
-    ORDER BY created_at ASC
-    LIMIT ?
-  `).all(MAX_RETRY, BATCH);
-  for (const row of rows) {
-    const live = buildEntityPayload(row.entity_type, row.entity_id);
-    let payload;
-    try {
-      payload = live || JSON.parse(row.payload_json || "{}");
-    } catch {
-      payload = { raw: row.payload_json };
+  for (; ; ) {
+    const rows = db.prepare(`
+      SELECT * FROM sync_outbox
+      WHERE status IN ('PENDING', 'FAILED') AND retry_count < ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(MAX_RETRY, BATCH);
+    if (!rows.length) break;
+    let progressed = false;
+    for (const row of rows) {
+      const live = buildEntityPayload(row.entity_type, row.entity_id);
+      let payload;
+      try {
+        payload = live || JSON.parse(row.payload_json || "{}");
+      } catch {
+        payload = { raw: row.payload_json };
+      }
+      const record = {
+        id: `${row.entity_type}:${row.entity_id}`,
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        operation: row.operation,
+        payload,
+        device_id: cfg.deviceId,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      const { error } = await client.from(TABLE).upsert(record, { onConflict: "id" });
+      if (error) {
+        const nextStatus = row.retry_count + 1 >= MAX_RETRY ? "FAILED" : "PENDING";
+        markOutbox(row.id, nextStatus, error.message);
+      } else {
+        markOutbox(row.id, "SYNCED");
+        progressed = true;
+      }
     }
-    const record = {
-      id: `${row.entity_type}:${row.entity_id}`,
-      entity_type: row.entity_type,
-      entity_id: row.entity_id,
-      operation: row.operation,
-      payload,
-      device_id: cfg.deviceId,
-      updated_at: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    const { error } = await client.from(TABLE).upsert(record, { onConflict: "id" });
-    if (error) {
-      const nextStatus = row.retry_count + 1 >= MAX_RETRY ? "FAILED" : "PENDING";
-      markOutbox(row.id, nextStatus, error.message);
-    } else {
-      markOutbox(row.id, "SYNCED");
-    }
+    if (!progressed) break;
   }
 }
 async function pullRemote(client, cfg) {
-  const since = cfg.lastPullAt || "1970-01-01T00:00:00.000Z";
-  const { data, error } = await client.from(TABLE).select("*").gt("updated_at", since).neq("device_id", cfg.deviceId).order("updated_at", { ascending: true }).limit(200);
-  if (error) throw new Error(error.message);
-  let newest = since;
-  for (const record of data || []) {
-    applyRemoteRecord(record);
-    if (record.updated_at > newest) newest = record.updated_at;
+  let since = cfg.lastPullAt || "1970-01-01T00:00:00.000Z";
+  const newestStart = since;
+  for (; ; ) {
+    const { data, error } = await client.from(TABLE).select("*").gt("updated_at", since).neq("device_id", cfg.deviceId).order("updated_at", { ascending: true }).limit(200);
+    if (error) throw new Error(error.message);
+    if (!(data == null ? void 0 : data.length)) break;
+    for (const record of data) {
+      applyRemoteRecord(record);
+      if (record.updated_at > since) since = record.updated_at;
+    }
+    setMeta("last_pull_at", since);
+    if (data.length < 200) break;
   }
-  if (newest !== since) setMeta("last_pull_at", newest);
+  return since !== newestStart;
 }
 function getSyncStatus() {
   refreshCounts(getSyncConfig());
@@ -29043,7 +31692,7 @@ async function runSyncCycle({ retryFailed = false } = {}) {
       return lastStatus;
     }
     if (!online) {
-      lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting to sync.`;
+      lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting. Will sync when internet returns.`;
       emit();
       return lastStatus;
     }
@@ -29062,7 +31711,7 @@ async function runSyncCycle({ retryFailed = false } = {}) {
     lastStatus.online = true;
     lastStatus.lastSyncedAt = syncedAt;
     lastStatus.lastError = null;
-    lastStatus.message = lastStatus.pending ? `Online. ${lastStatus.pending} still queued.` : "Online and synced with Supabase.";
+    lastStatus.message = lastStatus.pending ? `Online. ${lastStatus.pending} still queued — retrying.` : "Online. Local SQLite is synced with Supabase.";
   } catch (err) {
     const message = err.message || "Sync failed";
     setMeta("last_error", message);
@@ -29074,12 +31723,40 @@ async function runSyncCycle({ retryFailed = false } = {}) {
   }
   return lastStatus;
 }
+function scheduleSyncSoon() {
+  if (soonTimer) clearTimeout(soonTimer);
+  soonTimer = setTimeout(() => {
+    soonTimer = null;
+    runSyncCycle().catch((err) => console.warn("[Sync]", err.message));
+  }, 1200);
+}
+function setNetworkHint(online) {
+  lastStatus.online = Boolean(online);
+  if (!online) {
+    refreshCounts(getSyncConfig());
+    lastStatus.message = `Offline. ${lastStatus.pending} change(s) waiting. Will sync when internet returns.`;
+    emit();
+    return lastStatus;
+  }
+  return runSyncCycle({ retryFailed: true });
+}
 function startSyncScheduler(win2) {
   mainWindow = win2;
+  ensureCloudSyncReady();
+  setOutboxFlushHook(scheduleSyncSoon);
   if (timer) clearInterval(timer);
   timer = setInterval(() => {
     runSyncCycle().catch((err) => console.warn("[Sync]", err.message));
-  }, 2e4);
+  }, 15e3);
+  if (!hooksBound) {
+    hooksBound = true;
+    powerMonitor.on("resume", () => {
+      runSyncCycle({ retryFailed: true }).catch((err) => console.warn("[Sync]", err.message));
+    });
+    powerMonitor.on("unlock-screen", () => {
+      runSyncCycle().catch((err) => console.warn("[Sync]", err.message));
+    });
+  }
   runSyncCycle().catch((err) => console.warn("[Sync]", err.message));
 }
 function registerSyncHandlers() {
@@ -29107,6 +31784,7 @@ function registerSyncHandlers() {
     };
   });
   ipcMain.handle("sync:run-now", async () => runSyncCycle({ retryFailed: true }));
+  ipcMain.handle("sync:notify-network", async (_event, online) => setNetworkHint(Boolean(online)));
 }
 function registerIpcHandlers(mainWindow2) {
   ipcMain.handle(IPC_CHANNELS.APP_GET_INFO, async () => {

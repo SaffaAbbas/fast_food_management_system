@@ -33,6 +33,8 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
   const [transferSourceTable, setTransferSourceTable] = useState(null)
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false)
   const [mergeSourceTable, setMergeSourceTable] = useState(null)
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
+  const [splitSourceTable, setSplitSourceTable] = useState(null)
 
   const [isAddTableModalOpen, setIsAddTableModalOpen] = useState(false)
   const [editingTable, setEditingTable] = useState(null)
@@ -167,7 +169,7 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
         </div>
 
         {/* Status Legend */}
-        <div className="flex items-center gap-3 text-xs text-slate-400">
+        <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
             Available
@@ -177,8 +179,16 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
             Occupied
           </span>
           <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-sm shadow-sky-500/50" />
+            Reserved
+          </span>
+          <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-sm shadow-purple-500/50" />
             Cleaning
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-slate-500" />
+            Out of Service
           </span>
         </div>
       </div>
@@ -203,9 +213,12 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {currentFloor?.tables?.map((table) => {
-            const isAvailable = table.status === 'AVAILABLE'
             const isOccupied = table.status === 'OCCUPIED'
             const isCleaning = table.status === 'CLEANING'
+            const isOut = table.status === 'OUT_OF_SERVICE'
+            const isReserved =
+              table.status === 'RESERVED' || (table.status === 'AVAILABLE' && Boolean(table.has_reservation))
+            const isAvailable = table.status === 'AVAILABLE' && !isReserved
 
             return (
               <div
@@ -215,8 +228,12 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                     ? 'bg-slate-950/70 border-emerald-900/60 hover:border-emerald-500 hover:shadow-xl hover:shadow-emerald-950/20'
                     : isOccupied
                     ? 'bg-amber-950/20 border-amber-800/80 hover:border-amber-500 hover:shadow-xl hover:shadow-amber-950/20'
+                    : isReserved
+                    ? 'bg-sky-950/20 border-sky-800/80'
                     : isCleaning
                     ? 'bg-purple-950/20 border-purple-800/80'
+                    : isOut
+                    ? 'bg-slate-900/80 border-slate-700'
                     : 'bg-slate-950/70 border-slate-800'
                 }`}
               >
@@ -238,10 +255,14 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                           ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
                           : isOccupied
                           ? 'bg-amber-950 text-amber-300 border border-amber-800 animate-pulse'
+                          : isReserved
+                          ? 'bg-sky-950 text-sky-300 border border-sky-800'
+                          : isOut
+                          ? 'bg-slate-800 text-slate-300 border border-slate-600'
                           : 'bg-purple-950 text-purple-300 border border-purple-800'
                       }`}
                     >
-                      {table.status}
+                      {isOut ? 'OUT OF SERVICE' : isReserved && table.status !== 'RESERVED' ? 'RESERVED' : table.status}
                     </span>
                   </div>
 
@@ -277,10 +298,28 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                     </div>
                   )}
 
+                  {isReserved && !isOccupied && (
+                    <div className="mt-3 bg-sky-950/40 border border-sky-800/50 rounded-xl p-3 space-y-1 text-xs">
+                      <p className="font-bold text-sky-200">Held for {table.reservation_guest || 'guest'}</p>
+                      {table.reservation_time && (
+                        <p className="text-sky-300/80 font-mono text-[11px]">
+                          {String(table.reservation_time).replace('T', ' ').slice(0, 16)}
+                          {table.reservation_party_size ? ` · ${table.reservation_party_size}p` : ''}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Cleaning State Prompt */}
                   {isCleaning && (
                     <div className="mt-4 py-3 text-center border border-dashed border-purple-900/60 rounded-xl text-purple-300 text-xs">
                       Table being sanitized
+                    </div>
+                  )}
+
+                  {isOut && (
+                    <div className="mt-4 py-3 text-center border border-dashed border-slate-700 rounded-xl text-slate-400 text-xs">
+                      Not in rotation
                     </div>
                   )}
                 </div>
@@ -302,6 +341,21 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                     </button>
                   )}
 
+                  {isReserved && !isOccupied && (
+                    <button
+                      onClick={() =>
+                        onStartOrderForTable?.({
+                          id: table.id,
+                          table_number: table.table_number,
+                          floor_name: currentFloor?.name,
+                        })
+                      }
+                      className="flex-1 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Seat / Start Order
+                    </button>
+                  )}
+
                   {isOccupied && (
                     <>
                       <button
@@ -310,6 +364,7 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                             id: table.id,
                             table_number: table.table_number,
                             floor_name: currentFloor?.name,
+                            current_order_id: table.current_order_id,
                           })
                         }
                         className="flex-1 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer text-center"
@@ -337,6 +392,16 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                       >
                         Merge
                       </button>
+                      <button
+                        onClick={() => {
+                          setSplitSourceTable(table)
+                          setIsSplitModalOpen(true)
+                        }}
+                        title="Split items onto another table"
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer text-[10px] font-bold px-2"
+                      >
+                        Split
+                      </button>
                     </>
                   )}
 
@@ -346,6 +411,15 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
                       className="flex-1 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all cursor-pointer"
                     >
                       Mark Available
+                    </button>
+                  )}
+
+                  {isOut && (
+                    <button
+                      onClick={() => handleUpdateStatus(table, 'AVAILABLE')}
+                      className="flex-1 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Restore
                     </button>
                   )}
 
@@ -381,6 +455,23 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
             setIsMergeModalOpen(false)
             setMergeSourceTable(null)
             showToast('success', 'Tables merged. Source order was archived as cancelled.')
+            loadFloorsAndTables()
+          }}
+        />
+      )}
+
+      {isSplitModalOpen && splitSourceTable && (
+        <SplitBillModal
+          sourceTable={splitSourceTable}
+          allTables={floors.flatMap((f) => f.tables || [])}
+          onClose={() => {
+            setIsSplitModalOpen(false)
+            setSplitSourceTable(null)
+          }}
+          onSuccess={() => {
+            setIsSplitModalOpen(false)
+            setSplitSourceTable(null)
+            showToast('success', 'Bill split onto the selected table.')
             loadFloorsAndTables()
           }}
         />
@@ -445,6 +536,132 @@ export default function TableManagerView({ onStartOrderForTable, onBack }) {
 // ============================================================================
 // SUB-COMPONENT: TRANSFER TABLE MODAL
 // ============================================================================
+function SplitBillModal({ sourceTable, allTables, onClose, onSuccess }) {
+  const availableTables = allTables.filter(
+    (t) => t.id !== sourceTable.id && t.status !== 'OCCUPIED' && t.status !== 'OUT_OF_SERVICE'
+  )
+  const [targetTableId, setTargetTableId] = useState(availableTables[0]?.id || '')
+  const [items, setItems] = useState([])
+  const [selectedIds, setSelectedIds] = useState([])
+  const [reason, setReason] = useState('Split party onto two bills')
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        if (!sourceTable.current_order_id || !window.api?.pos?.getOrder) return
+        const full = await window.api.pos.getOrder(sourceTable.current_order_id)
+        setItems(full?.items || [])
+      } catch (err) {
+        setErrorMsg(err.message || 'Could not load bill items')
+      }
+    }
+    load()
+  }, [sourceTable.current_order_id])
+
+  const toggleItem = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const handleSplit = async (e) => {
+    e.preventDefault()
+    if (!targetTableId) {
+      setErrorMsg('Select an empty table for the new bill.')
+      return
+    }
+    if (selectedIds.length === 0) {
+      setErrorMsg('Select items to move.')
+      return
+    }
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      await window.api.tables.splitBill({
+        sourceTableId: sourceTable.id,
+        targetTableId,
+        itemIds: selectedIds,
+        reason: reason.trim(),
+      })
+      onSuccess()
+    } catch (err) {
+      setErrorMsg(err.message || 'Split failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 className="font-bold text-white text-base">Split bill from {sourceTable.table_number}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {errorMsg && (
+          <div className="p-2.5 rounded bg-rose-950 border border-rose-800 text-rose-200 text-xs">{errorMsg}</div>
+        )}
+        <form onSubmit={handleSplit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Move selected items to</label>
+            <select
+              value={targetTableId}
+              onChange={(e) => setTargetTableId(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+            >
+              {availableTables.length === 0 && <option value="">No empty tables</option>}
+              {availableTables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.table_number}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="max-h-40 overflow-y-auto space-y-1.5 border border-slate-800 rounded-xl p-2">
+            {items.length === 0 ? (
+              <p className="text-xs text-slate-500 px-1">No items on this bill.</p>
+            ) : (
+              items.map((it) => (
+                <label key={it.id} className="flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(it.id)}
+                    onChange={() => toggleItem(it.id)}
+                  />
+                  <span className="flex-1">
+                    {it.quantity}× {it.item_name || it.name}
+                  </span>
+                  <span className="font-mono text-slate-400">${((it.total_cents || 0) / 100).toFixed(2)}</span>
+                </label>
+              ))
+            )}
+          </div>
+          <input
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+          />
+          <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+            <button type="button" onClick={onClose} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading || availableTables.length === 0}
+              className="px-4 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold disabled:opacity-50"
+            >
+              {loading ? 'Splitting...' : 'Split Bill'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function MergeTablesModal({ sourceTable, allTables, onClose, onSuccess }) {
   const occupiedTables = allTables.filter((t) => t.id !== sourceTable.id && t.status === 'OCCUPIED' && t.current_order_id)
   const [targetTableId, setTargetTableId] = useState(occupiedTables[0]?.id || '')
@@ -726,13 +943,35 @@ function AddEditTableModal({ editingTable, floors, currentFloorId, onClose, onSu
               >
                 <option value="AVAILABLE">AVAILABLE</option>
                 <option value="OCCUPIED">OCCUPIED</option>
-                <option value="CLEANING">CLEANING</option>
                 <option value="RESERVED">RESERVED</option>
+                <option value="CLEANING">CLEANING</option>
+                <option value="OUT_OF_SERVICE">OUT OF SERVICE</option>
               </select>
             </div>
           )}
 
           <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+            {isEdit && (
+              <button
+                type="button"
+                disabled={loading || editingTable.status === 'OCCUPIED'}
+                onClick={async () => {
+                  if (!window.confirm(`Deactivate table ${editingTable.table_number}? It will hide from the map.`)) return
+                  setLoading(true)
+                  setErrorMsg('')
+                  try {
+                    await window.api.tables.archiveTable(editingTable.id)
+                    onSuccess()
+                  } catch (err) {
+                    setErrorMsg(err.message || 'Could not deactivate table')
+                    setLoading(false)
+                  }
+                }}
+                className="mr-auto px-3.5 py-1.5 rounded-lg bg-rose-950 border border-rose-800 text-rose-200 text-xs disabled:opacity-40"
+              >
+                Deactivate
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}

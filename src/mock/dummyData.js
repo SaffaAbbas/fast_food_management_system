@@ -28,8 +28,8 @@ export const ALL_PERMISSIONS = [
 export const INITIAL_USERS = [
   { id: 'usr-admin', username: 'admin', displayName: 'Administrator', display_name: 'Administrator', roleCode: 'super_admin', role_code: 'super_admin', roleName: 'Super Administrator', role_name: 'Super Administrator', pin: '1234', pass: 'admin123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
   { id: 'usr-mgr', username: 'manager', displayName: 'Sarah Manager', display_name: 'Sarah Manager', roleCode: 'manager', role_code: 'manager', roleName: 'Restaurant Manager', role_name: 'Restaurant Manager', pin: '2345', pass: 'manager123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
-  { id: 'usr-cashier', username: 'cashier', displayName: 'Sam Cashier', display_name: 'Sam Cashier', roleCode: 'cashier', role_code: 'cashier', roleName: 'Senior Cashier', role_name: 'Senior Cashier', pin: '3456', pass: 'cashier123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
-  { id: 'usr-waiter', username: 'waiter', displayName: 'David Waiter', display_name: 'David Waiter', roleCode: 'waiter', role_code: 'waiter', roleName: 'Head Waiter', role_name: 'Head Waiter', pin: '4567', pass: 'waiter123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
+  { id: 'usr-cashier', username: 'cashier', displayName: 'Sam Cashier', display_name: 'Sam Cashier', roleCode: 'cashier', role_code: 'cashier', roleName: 'Senior Cashier', role_name: 'Senior Cashier', pin: '3456', pass: 'cashier123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS.filter((p) => p !== 'pos:apply_discount') },
+  { id: 'usr-waiter', username: 'waiter', displayName: 'David Waiter', display_name: 'David Waiter', roleCode: 'waiter', role_code: 'waiter', roleName: 'Head Waiter', role_name: 'Head Waiter', pin: '4567', pass: 'waiter123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS.filter((p) => p !== 'pos:apply_discount') },
   { id: 'usr-chef', username: 'chef', displayName: 'Gordon Head Chef', display_name: 'Gordon Head Chef', roleCode: 'kitchen_staff', role_code: 'kitchen_staff', roleName: 'Head Chef', role_name: 'Head Chef', pin: '5678', pass: 'chef123', branchId: 'br-01', branchName: 'Main Flagship Branch', permissions: ALL_PERMISSIONS },
 ]
 
@@ -497,10 +497,11 @@ export const INITIAL_CUSTOMERS = [
 ]
 
 export const INITIAL_COUPONS = [
-  { id: 'cpn-01', code: 'WELCOME10', title: '10% Welcome Discount', discount_type: 'PERCENTAGE', discount_value: 10, min_order_cents: 1500, max_discount_cents: 500, is_active: 1 },
-  { id: 'cpn-02', code: 'LUNCH5', title: '$5 Off Lunch Saver', discount_type: 'FIXED_AMOUNT', discount_value: 500, min_order_cents: 2500, max_discount_cents: null, is_active: 1 },
-  { id: 'cpn-03', code: 'VIP20', title: '20% VIP Feast Special', discount_type: 'PERCENTAGE', discount_value: 20, min_order_cents: 5000, max_discount_cents: 2000, is_active: 1 },
-  { id: 'cpn-04', code: 'FREESHIP', title: '$3 Off Delivery Fee', discount_type: 'FIXED_AMOUNT', discount_value: 300, min_order_cents: 2000, max_discount_cents: null, is_active: 1 },
+  { id: 'cpn-01', code: 'WELCOME10', title: '10% Welcome Discount', discount_type: 'PERCENTAGE', discount_value: 10, min_order_cents: 1500, max_discount_cents: 500, is_active: 1, applies_to: 'ALL', times_used: 0, usage_limit: 0 },
+  { id: 'cpn-02', code: 'LUNCH5', title: '$5 Off Lunch Saver', discount_type: 'FIXED_AMOUNT', discount_value: 500, min_order_cents: 2500, max_discount_cents: null, is_active: 1, applies_to: 'ALL', times_used: 0, usage_limit: 0 },
+  { id: 'cpn-03', code: 'VIP20', title: '20% VIP Feast Special', discount_type: 'PERCENTAGE', discount_value: 20, min_order_cents: 5000, max_discount_cents: 2000, is_active: 1, applies_to: 'ALL', customer_segment: 'VIP', times_used: 0, usage_limit: 0 },
+  { id: 'cpn-04', code: 'FREESHIP', title: '$3 Off Delivery Fee', discount_type: 'FIXED_AMOUNT', discount_value: 300, min_order_cents: 2000, max_discount_cents: null, is_active: 1, applies_to: 'ALL', times_used: 0, usage_limit: 0 },
+  { id: 'cpn-05', code: 'HAPPYHOUR', title: 'Happy Hour 15%', discount_type: 'PERCENTAGE', discount_value: 15, min_order_cents: 0, max_discount_cents: 1500, is_active: 1, applies_to: 'ALL', is_auto_apply: 1, start_time: '16:00', end_time: '19:00', times_used: 0, usage_limit: 0 },
 ]
 
 export const INITIAL_RESERVATIONS = [

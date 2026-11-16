@@ -17,6 +17,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'auth:needs-setup',
   'auth:complete-setup',
   'dashboard:get-metrics',
+  'dashboard:list-branches',
   'db:get-settings',
   'db:get-categories',
   'db:get-products',
@@ -58,6 +59,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'table:update-table',
   'table:archive-table',
   'table:merge-tables',
+  'table:split-bill',
   // Customer CRM & Loyalty (Phase 9)
   'customer:get-customers',
   'customer:get-details',
@@ -65,6 +67,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'customer:update',
   'customer:adjust-loyalty',
   'customer:get-summary',
+  'customer:merge',
   // Table Reservations (Phase 9)
   'reservation:get-reservations',
   'reservation:create',
@@ -75,10 +78,12 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'coupon:create',
   'coupon:update',
   'coupon:validate',
+  'coupon:evaluate-auto',
   // Kitchen Display System (Phase 6)
   'kitchen:get-orders',
   'kitchen:update-item-status',
   'kitchen:update-order-status',
+  'kitchen:accept-order',
   'kitchen:get-stations',
   'kitchen:create-station',
   'kitchen:update-station',
@@ -92,10 +97,15 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'inventory:update-item',
   'inventory:adjust-stock',
   'inventory:get-movements',
+  'inventory:transfer-stock',
+  'inventory:get-alerts',
+  'inventory:get-branches',
   // Recipes & Food Cost (Phase 7)
   'recipe:get-recipes',
   'recipe:get-recipe',
   'recipe:save-recipe',
+  'recipe:set-active',
+  'recipe:get-versions',
   // Suppliers & Purchases (Phase 7)
   'supplier:get-suppliers',
   'supplier:create',
@@ -103,10 +113,15 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'purchase:get-orders',
   'purchase:create-order',
   'purchase:record-payment',
+  'purchase:receive-order',
+  'purchase:return-items',
+  'purchase:vendor-statement',
   // Expenses (Phase 7)
   'expense:get-categories',
   'expense:get-expenses',
   'expense:create',
+  'expense:approve',
+  'expense:cancel',
   'expense:get-summary',
   // Cash Drawer & Shift Management (Phase 8)
   'cash:get-current-session',
@@ -122,6 +137,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'staff:create-employee',
   'staff:update-employee',
   'staff:clock-in',
+  'staff:mark-attendance',
   'staff:clock-out',
   'staff:get-attendance-logs',
   'staff:get-shifts',
@@ -166,6 +182,12 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'reports:get-expense-report',
   'reports:get-reservation-report',
   'reports:get-refund-report',
+  'reports:get-food-cost',
+  'reports:get-purchase-report',
+  'reports:get-vendor-statement',
+  'reports:get-cashier-report',
+  'reports:get-branch-comparison',
+  'reports:get-lookups',
   'media:save',
   'media:get-data-url',
   // System Settings (Phase 11)
@@ -176,6 +198,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   'sync:get-config',
   'sync:save-config',
   'sync:run-now',
+  'sync:notify-network',
+  'pos:record-print',
 ])
 
 // Whitelist of channels allowed for renderer send
@@ -223,6 +247,7 @@ const api = {
   // Dashboard API
   dashboard: {
     getMetrics: (params = {}) => ipcRenderer.invoke('dashboard:get-metrics', params),
+    listBranches: () => ipcRenderer.invoke('dashboard:list-branches'),
   },
 
   // Product & Menu Catalog API (Phase 4)
@@ -254,6 +279,7 @@ const api = {
     cancelOrder: (data) => ipcRenderer.invoke('pos:cancel-order', data),
     refundOrder: (data) => ipcRenderer.invoke('pos:refund-order', data),
     getOrders: (params = {}) => ipcRenderer.invoke('pos:get-orders', params),
+    recordPrint: (data) => ipcRenderer.invoke('pos:record-print', data),
   },
 
   // Table & Floor Management API (Phase 5)
@@ -267,6 +293,7 @@ const api = {
     updateTable: (data) => ipcRenderer.invoke('table:update-table', data),
     archiveTable: (id) => ipcRenderer.invoke('table:archive-table', id),
     mergeTables: (data) => ipcRenderer.invoke('table:merge-tables', data),
+    splitBill: (data) => ipcRenderer.invoke('table:split-bill', data),
   },
 
   // Customer Management API (Phase 5 & 8)
@@ -282,6 +309,7 @@ const api = {
     getOrders: (params = {}) => ipcRenderer.invoke('kitchen:get-orders', params),
     updateItemStatus: (data) => ipcRenderer.invoke('kitchen:update-item-status', data),
     updateOrderStatus: (data) => ipcRenderer.invoke('kitchen:update-order-status', data),
+    acceptOrder: (data) => ipcRenderer.invoke('kitchen:accept-order', data),
     getStations: (branchId) => ipcRenderer.invoke('kitchen:get-stations', branchId),
     createStation: (data) => ipcRenderer.invoke('kitchen:create-station', data),
     updateStation: (id, data) => ipcRenderer.invoke('kitchen:update-station', { id, data }),
@@ -298,6 +326,9 @@ const api = {
     updateItem: (id, data) => ipcRenderer.invoke('inventory:update-item', { id, data }),
     adjustStock: (data) => ipcRenderer.invoke('inventory:adjust-stock', data),
     getMovements: (params = {}) => ipcRenderer.invoke('inventory:get-movements', params),
+    transferStock: (data) => ipcRenderer.invoke('inventory:transfer-stock', data),
+    getAlerts: (params = {}) => ipcRenderer.invoke('inventory:get-alerts', params),
+    getBranches: () => ipcRenderer.invoke('inventory:get-branches'),
   },
 
   // Recipes & Food Cost API (Phase 7)
@@ -305,6 +336,8 @@ const api = {
     getRecipes: (params = {}) => ipcRenderer.invoke('recipe:get-recipes', params),
     getRecipe: (params) => ipcRenderer.invoke('recipe:get-recipe', params),
     saveRecipe: (data) => ipcRenderer.invoke('recipe:save-recipe', data),
+    setActive: (id, isActive) => ipcRenderer.invoke('recipe:set-active', { id, isActive }),
+    getVersions: (recipeId) => ipcRenderer.invoke('recipe:get-versions', recipeId),
   },
 
   // Suppliers & Purchases API (Phase 7)
@@ -315,6 +348,9 @@ const api = {
     getOrders: (params = {}) => ipcRenderer.invoke('purchase:get-orders', params),
     createOrder: (data) => ipcRenderer.invoke('purchase:create-order', data),
     recordPayment: (data) => ipcRenderer.invoke('purchase:record-payment', data),
+    receiveOrder: (data) => ipcRenderer.invoke('purchase:receive-order', data),
+    returnItems: (data) => ipcRenderer.invoke('purchase:return-items', data),
+    getVendorStatement: (params) => ipcRenderer.invoke('purchase:vendor-statement', params),
   },
 
   // Expense Management API (Phase 7)
@@ -322,6 +358,9 @@ const api = {
     getCategories: () => ipcRenderer.invoke('expense:get-categories'),
     getExpenses: (params = {}) => ipcRenderer.invoke('expense:get-expenses', params),
     createExpense: (data) => ipcRenderer.invoke('expense:create', data),
+    create: (data) => ipcRenderer.invoke('expense:create', data),
+    approve: (id) => ipcRenderer.invoke('expense:approve', id),
+    cancel: (data) => ipcRenderer.invoke('expense:cancel', data),
     getSummary: (params = {}) => ipcRenderer.invoke('expense:get-summary', params),
   },
 
@@ -343,6 +382,7 @@ const api = {
     createEmployee: (data) => ipcRenderer.invoke('staff:create-employee', data),
     updateEmployee: (id, data) => ipcRenderer.invoke('staff:update-employee', { id, data }),
     clockIn: (data) => ipcRenderer.invoke('staff:clock-in', data),
+    markAttendance: (data) => ipcRenderer.invoke('staff:mark-attendance', data),
     clockOut: (data) => ipcRenderer.invoke('staff:clock-out', data),
     getAttendanceLogs: (params = {}) => ipcRenderer.invoke('staff:get-attendance-logs', params),
     getShifts: (branchId) => ipcRenderer.invoke('staff:get-shifts', branchId),
@@ -362,6 +402,7 @@ const api = {
     update: (id, data) => ipcRenderer.invoke('customer:update', { id, data }),
     adjustLoyalty: (data) => ipcRenderer.invoke('customer:adjust-loyalty', data),
     getSummary: (branchId) => ipcRenderer.invoke('customer:get-summary', branchId),
+    merge: (data) => ipcRenderer.invoke('customer:merge', data),
   },
 
   // Reservations API (Phase 9)
@@ -378,6 +419,7 @@ const api = {
     create: (data) => ipcRenderer.invoke('coupon:create', data),
     update: (id, data) => ipcRenderer.invoke('coupon:update', { id, data }),
     validate: (data) => ipcRenderer.invoke('coupon:validate', data),
+    evaluateAuto: (data) => ipcRenderer.invoke('coupon:evaluate-auto', data),
   },
 
   // Delivery & Dispatch API (Phase 10)
@@ -419,6 +461,12 @@ const api = {
     getExpenseReport: (params = {}) => ipcRenderer.invoke('reports:get-expense-report', params),
     getReservationReport: (params = {}) => ipcRenderer.invoke('reports:get-reservation-report', params),
     getRefundReport: (params = {}) => ipcRenderer.invoke('reports:get-refund-report', params),
+    getFoodCost: (params = {}) => ipcRenderer.invoke('reports:get-food-cost', params),
+    getPurchaseReport: (params = {}) => ipcRenderer.invoke('reports:get-purchase-report', params),
+    getVendorStatement: (params = {}) => ipcRenderer.invoke('reports:get-vendor-statement', params),
+    getCashierReport: (params = {}) => ipcRenderer.invoke('reports:get-cashier-report', params),
+    getBranchComparison: (params = {}) => ipcRenderer.invoke('reports:get-branch-comparison', params),
+    getLookups: () => ipcRenderer.invoke('reports:get-lookups'),
   },
 
   media: {
@@ -431,6 +479,7 @@ const api = {
     getConfig: () => ipcRenderer.invoke('sync:get-config'),
     saveConfig: (payload) => ipcRenderer.invoke('sync:save-config', payload),
     runNow: () => ipcRenderer.invoke('sync:run-now'),
+    notifyNetwork: (online) => ipcRenderer.invoke('sync:notify-network', online),
   },
 
   // Settings API (Phase 11)

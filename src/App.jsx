@@ -59,28 +59,31 @@ import ReservationsView from './features/reservations/ReservationsView.jsx'
 import DeliveryDispatchView from './features/delivery/DeliveryDispatchView.jsx'
 import ReportsView from './features/reports/ReportsView.jsx'
 import SettingsView from './features/settings/SettingsView.jsx'
+import AuditLogView from './features/audit/AuditLogView.jsx'
 import QrKioskCenterView from './features/kiosk/QrKioskCenterView.jsx'
+import { userCan, homeModuleFor } from './lib/access.js'
 
 const MODULE_LIST = [
-  { id: 'dashboard', name: 'Dashboard', group: 'Service', icon: LayoutDashboard, perm: 'dashboard:view' },
-  { id: 'pos', name: 'POS', group: 'Service', icon: ShoppingBag, perm: 'pos:create_order' },
-  { id: 'orders', name: 'Orders', group: 'Service', icon: Receipt, perm: 'pos:create_order' },
-  { id: 'kitchen', name: 'Kitchen', group: 'Service', icon: UtensilsCrossed, perm: 'kitchen:view' },
-  { id: 'tables', name: 'Tables', group: 'Service', icon: Grid3X3, perm: 'pos:create_order' },
-  { id: 'products', name: 'Menu', group: 'Catalog', icon: Package, perm: 'menu:manage' },
-  { id: 'inventory', name: 'Inventory', group: 'Catalog', icon: Boxes, perm: 'inventory:manage' },
-  { id: 'recipes', name: 'Recipes', group: 'Catalog', icon: ScrollText, perm: 'inventory:manage' },
-  { id: 'purchases', name: 'Purchases', group: 'Catalog', icon: Truck, perm: 'inventory:manage' },
-  { id: 'staff', name: 'Staff', group: 'People', icon: UserCheck, perm: 'staff:manage' },
-  { id: 'customers', name: 'Customers', group: 'People', icon: Users, perm: 'pos:create_order' },
-  { id: 'reservations', name: 'Reservations', group: 'People', icon: CalendarDays, perm: 'reservations:manage' },
-  { id: 'delivery', name: 'Delivery', group: 'People', icon: Bike, perm: 'delivery:manage' },
-  { id: 'expenses', name: 'Expenses', group: 'Finance', icon: DollarSign, perm: 'expenses:manage' },
-  { id: 'cash_drawer', name: 'Cash drawer', group: 'Finance', icon: DollarSign, perm: 'cash:manage' },
-  { id: 'reports', name: 'Reports', group: 'Finance', icon: BarChart3, perm: 'reports:view' },
-  { id: 'qr_kiosk', name: 'QR / Kiosk', group: 'Admin', icon: QrCode, perm: 'settings:manage' },
-  { id: 'settings', name: 'Settings', group: 'Admin', icon: Settings, perm: 'settings:manage' },
-  { id: 'diagnostics', name: 'Diagnostics', group: 'Admin', icon: Wrench, perm: 'settings:manage' },
+  { id: 'dashboard', name: 'Dashboard', group: 'Service', icon: LayoutDashboard, perms: ['dashboard:view'] },
+  { id: 'pos', name: 'POS', group: 'Service', icon: ShoppingBag, perms: ['pos:create_order'] },
+  { id: 'orders', name: 'Orders', group: 'Service', icon: Receipt, perms: ['pos:create_order', 'pos:print_receipt'] },
+  { id: 'kitchen', name: 'Kitchen', group: 'Service', icon: UtensilsCrossed, perms: ['kitchen:view'] },
+  { id: 'tables', name: 'Tables', group: 'Service', icon: Grid3X3, perms: ['tables:view', 'tables:manage'] },
+  { id: 'products', name: 'Menu', group: 'Catalog', icon: Package, perms: ['menu:manage'] },
+  { id: 'inventory', name: 'Inventory', group: 'Catalog', icon: Boxes, perms: ['inventory:manage'] },
+  { id: 'recipes', name: 'Recipes', group: 'Catalog', icon: ScrollText, perms: ['inventory:manage', 'menu:manage'] },
+  { id: 'purchases', name: 'Purchases', group: 'Catalog', icon: Truck, perms: ['inventory:manage'] },
+  { id: 'staff', name: 'Staff', group: 'People', icon: UserCheck, perms: ['staff:manage'] },
+  { id: 'customers', name: 'Customers', group: 'People', icon: Users, perms: ['customers:view', 'customers:manage'] },
+  { id: 'reservations', name: 'Reservations', group: 'People', icon: CalendarDays, perms: ['reservations:manage'] },
+  { id: 'delivery', name: 'Delivery', group: 'People', icon: Bike, perms: ['delivery:manage', 'delivery:assigned'] },
+  { id: 'expenses', name: 'Expenses', group: 'Finance', icon: DollarSign, perms: ['expenses:manage'] },
+  { id: 'cash_drawer', name: 'Cash drawer', group: 'Finance', icon: DollarSign, perms: ['cash:manage'] },
+  { id: 'reports', name: 'Reports', group: 'Finance', icon: BarChart3, perms: ['reports:view'] },
+  { id: 'qr_kiosk', name: 'QR / Kiosk', group: 'Admin', icon: QrCode, perms: ['settings:manage'] },
+  { id: 'audit', name: 'Audit log', group: 'Admin', icon: ShieldCheck, perms: ['audit:view', 'settings:manage'] },
+  { id: 'settings', name: 'Settings', group: 'Admin', icon: Settings, perms: ['settings:manage', 'settings:branch'] },
+  { id: 'diagnostics', name: 'Diagnostics', group: 'Admin', icon: Wrench, perms: ['settings:manage'] },
 ]
 
 export default function App() {
@@ -108,12 +111,26 @@ export default function App() {
     return () => clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    window.api?.settings?.getAll?.()
+      .then((s) => {
+        if (s?.ui_theme) document.documentElement.setAttribute('data-theme', s.ui_theme)
+        if (s?.time_format === '12h') {
+          /* clock uses locale below */
+        }
+      })
+      .catch(() => {})
+  }, [currentUser])
+
   // Check existing session
   useEffect(() => {
     if (window.api?.auth?.getCurrentUser) {
       window.api.auth.getCurrentUser()
         .then((session) => {
-          if (session) setCurrentUser(session)
+          if (session) {
+            setCurrentUser(session)
+            setActiveModule(homeModuleFor(session))
+          }
         })
         .catch((e) => console.error('Failed to get session:', e))
     }
@@ -183,13 +200,24 @@ export default function App() {
       unsub = window.api.on('db:sync-status', (status) => setSyncStatus(status))
     }
     const onOnline = () => {
-      if (window.api?.sync?.runNow) window.api.sync.runNow().then(setSyncStatus).catch(() => {})
+      if (window.api?.sync?.notifyNetwork) {
+        window.api.sync.notifyNetwork(true).then(setSyncStatus).catch(() => {})
+      } else if (window.api?.sync?.runNow) {
+        window.api.sync.runNow().then(setSyncStatus).catch(() => {})
+      }
+    }
+    const onOffline = () => {
+      if (window.api?.sync?.notifyNetwork) {
+        window.api.sync.notifyNetwork(false).then(setSyncStatus).catch(() => {})
+      }
     }
     window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
     return () => {
       clearInterval(timer)
       unsub()
       window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
     }
   }, [])
 
@@ -272,16 +300,12 @@ export default function App() {
 
   const hasModuleAccess = (mod) => {
     if (!currentUser) return false
-    if (!mod.perm) return true
-    if (currentUser.roleCode === 'super_admin' || currentUser.role_code === 'super_admin') return true
-    const perms = currentUser.permissions || []
-    if (perms.includes(mod.perm)) return true
-    if (mod.perm === 'cash:manage' && perms.includes('pos:create_order')) return true
-    if (mod.perm === 'expenses:manage' && perms.includes('reports:view')) return true
-    if (mod.perm === 'reservations:manage' && perms.includes('pos:create_order')) return true
-    if (mod.perm === 'delivery:manage' && perms.includes('pos:create_order')) return true
-    return false
+    const codes = mod.perms || (mod.perm ? [mod.perm] : [])
+    if (!codes.length) return true
+    return codes.some((code) => userCan(currentUser, code))
   }
+
+  const allowedModules = MODULE_LIST.filter((mod) => hasModuleAccess(mod))
 
   // If user is not logged in, present secure LoginScreen
   if (!currentUser) {
@@ -289,6 +313,7 @@ export default function App() {
       <LoginScreen
         onLoginSuccess={(session) => {
           setCurrentUser(session)
+          setActiveModule(homeModuleFor(session))
           loadData()
         }}
       />
@@ -297,7 +322,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f3f5f8] text-slate-900 select-none">
-      <aside className="w-[232px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+      <aside className="hidden lg:flex w-[232px] bg-white border-r border-slate-200 flex-col flex-shrink-0">
         <div className="h-[64px] flex items-center gap-3 px-4 border-b border-slate-200">
           <div className="w-9 h-9 rounded-xl bg-orange-600 flex items-center justify-center font-extrabold text-white text-sm">
             RF
@@ -324,7 +349,10 @@ export default function App() {
                     return (
                       <button
                         key={mod.id}
-                        onClick={() => setActiveModule(mod.id)}
+                        onClick={() => {
+                          if (mod.id === 'pos') setPosPreselectedTable(null)
+                          setActiveModule(mod.id)
+                        }}
                         className={`w-full flex items-center gap-2.5 px-2.5 py-[8px] rounded-lg text-[13px] font-medium transition-colors ${
                           isActive
                             ? 'bg-orange-600 text-white shadow-sm'
@@ -363,19 +391,22 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-[64px] bg-white border-b border-slate-200 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            {activeModule !== 'dashboard' && (
+            {activeModule !== homeModuleFor(currentUser) && (
               <button
-                onClick={() => setActiveModule('dashboard')}
+                onClick={() => setActiveModule(homeModuleFor(currentUser))}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[13px] font-semibold"
-                title="Dashboard"
+                title="Home"
               >
                 <ArrowLeft className="w-4 h-4 text-orange-600" />
                 Home
               </button>
             )}
-            {activeModule !== 'pos' && (
+            {activeModule !== 'pos' && userCan(currentUser, 'pos:create_order') && (
               <button
-                onClick={() => setActiveModule('pos')}
+                onClick={() => {
+                  setPosPreselectedTable(null)
+                  setActiveModule('pos')
+                }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[13px] font-semibold"
               >
                 <ShoppingBag className="w-4 h-4" />
@@ -426,7 +457,7 @@ export default function App() {
         </header>
 
         {/* Main Body */}
-        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 pb-24 lg:pb-6">
           {/* Notification feedback banner if active */}
           {actionFeedback && (
             <div className={`p-3 rounded-lg flex items-center gap-2 text-xs font-semibold ${
@@ -442,8 +473,8 @@ export default function App() {
           {/* Render Active Module */}
           {activeModule === 'dashboard' ? (
             <DashboardView
+              currentUser={currentUser}
               onNavigate={(mod) => setActiveModule(mod)}
-              onTriggerTestOrder={handleCreateTestOrder}
             />
           ) : activeModule === 'pos' ? (
             <PosView
@@ -463,8 +494,9 @@ export default function App() {
             />
           ) : activeModule === 'orders' ? (
             <OrdersView
+              currentUser={currentUser}
               onNavigateToPos={() => setActiveModule('pos')}
-              onBack={() => setActiveModule('dashboard')}
+              onBack={() => setActiveModule(homeModuleFor(currentUser))}
             />
           ) : activeModule === 'kitchen' ? (
             <KitchenDisplayView currentUser={currentUser} onBack={() => setActiveModule('dashboard')} />
@@ -493,13 +525,15 @@ export default function App() {
               onBack={() => setActiveModule('dashboard')}
             />
           ) : activeModule === 'delivery' ? (
-            <DeliveryDispatchView onBack={() => setActiveModule('dashboard')} />
+            <DeliveryDispatchView currentUser={currentUser} onBack={() => setActiveModule(homeModuleFor(currentUser))} />
           ) : activeModule === 'reports' ? (
             <ReportsView onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'qr_kiosk' ? (
             <QrKioskCenterView onBack={() => setActiveModule('dashboard')} />
+          ) : activeModule === 'audit' ? (
+            <AuditLogView currentUser={currentUser} onBack={() => setActiveModule('dashboard')} />
           ) : activeModule === 'settings' ? (
-            <SettingsView onBack={() => setActiveModule('dashboard')} />
+            <SettingsView currentUser={currentUser} onBack={() => setActiveModule(homeModuleFor(currentUser))} />
           ) : activeModule === 'diagnostics' ? (
             /* System Diagnostics & Database Explorer */
             <div className="space-y-6">
@@ -629,6 +663,29 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 flex overflow-x-auto">
+        {allowedModules.map((mod) => {
+          const Icon = mod.icon
+          const isActive = activeModule === mod.id
+          return (
+            <button
+              key={mod.id}
+              type="button"
+              onClick={() => {
+                if (mod.id === 'pos') setPosPreselectedTable(null)
+                setActiveModule(mod.id)
+              }}
+              className={`flex-shrink-0 min-w-[72px] px-3 py-2.5 flex flex-col items-center gap-0.5 text-[11px] font-semibold ${
+                isActive ? 'text-orange-600' : 'text-slate-500'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span>{mod.name}</span>
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }

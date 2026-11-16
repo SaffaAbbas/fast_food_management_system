@@ -66,6 +66,9 @@ export default function StaffManagerView({ onBack }) {
     emergencyContact: '',
     notes: '',
     imageUrl: null,
+    userId: '',
+    status: 'ACTIVE',
+    commissionPercent: '0',
   })
 
   // Clock In/Out Form State
@@ -79,6 +82,7 @@ export default function StaffManagerView({ onBack }) {
     displayName: '',
     roleId: '',
     pin: '',
+    password: '',
     isActive: true,
     imageUrl: null,
   })
@@ -201,6 +205,9 @@ export default function StaffManagerView({ onBack }) {
       emergencyContact: emp.emergency_contact || '',
       notes: emp.notes || '',
       imageUrl: emp.image_url || null,
+      userId: emp.user_id || '',
+      status: emp.status || 'ACTIVE',
+      commissionPercent: String(emp.commission_percent || 0),
     })
     setShowAddEmpModal(true)
   }
@@ -258,6 +265,7 @@ export default function StaffManagerView({ onBack }) {
           displayName: userForm.displayName,
           roleId: userForm.roleId,
           pin: userForm.pin,
+          password: userForm.password,
           isActive: userForm.isActive,
           imageUrl: userForm.imageUrl,
         })
@@ -857,6 +865,42 @@ export default function StaffManagerView({ onBack }) {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Linked login</label>
+                  <select
+                    value={empForm.userId}
+                    onChange={(e) => setEmpForm({ ...empForm, userId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="">None</option>
+                    {usersList.map((u) => (
+                      <option key={u.id} value={u.id}>{u.username} — {u.display_name || u.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Status</label>
+                  <select
+                    value={empForm.status}
+                    onChange={(e) => setEmpForm({ ...empForm, status: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white"
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive (keep history)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">Commission %</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={empForm.commissionPercent}
+                  onChange={(e) => setEmpForm({ ...empForm, commissionPercent: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono"
+                />
+              </div>
 
               <div>
                 <label className="font-semibold text-slate-300 block mb-1">Emergency Contact Info</label>
@@ -934,6 +978,28 @@ export default function StaffManagerView({ onBack }) {
                 />
               </div>
 
+              <div className="flex flex-wrap gap-2">
+                {['ABSENT', 'LATE', 'LEAVE'].map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    className="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 text-[10px] font-bold"
+                    onClick={async () => {
+                      await window.api.staff.markAttendance({
+                        employeeId: selectedEmpForClock.id,
+                        status: st,
+                        notes: clockNotes || st,
+                      })
+                      setShowClockInOutModal(false)
+                      loadAllStaffData()
+                      if (activeTab === 'attendance') loadAttendance()
+                    }}
+                  >
+                    Mark {st}
+                  </button>
+                ))}
+              </div>
+
               <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
                 <button
                   type="button"
@@ -963,7 +1029,7 @@ export default function StaffManagerView({ onBack }) {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-emerald-400" />
-                {editingUser ? `Edit User: @${editingUser.username}` : 'Create Terminal User'}
+                {editingUser ? `Edit User: @${editingUser.username}` : 'Create staff login'}
               </h3>
               <button onClick={() => setShowAddUserModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
             </div>
@@ -997,7 +1063,7 @@ export default function StaffManagerView({ onBack }) {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">Role Permission Preset</label>
+                <label className="font-semibold text-slate-300 block mb-1">Role</label>
                 <select
                   value={userForm.roleId}
                   onChange={(e) => setUserForm({ ...userForm, roleId: e.target.value })}
@@ -1017,10 +1083,23 @@ export default function StaffManagerView({ onBack }) {
                   type="password"
                   maxLength={6}
                   value={userForm.pin}
-                  onChange={(e) => setUserForm({ ...userForm, pin: e.target.value })}
+                  onChange={(e) => setUserForm({ ...userForm, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-center tracking-widest text-sm focus:outline-none focus:border-emerald-500"
                   placeholder="••••"
                   required={!editingUser}
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-300 block mb-1">
+                  {editingUser ? 'New password (blank keeps current)' : 'Password (optional, for managers)'}
+                </label>
+                <input
+                  type="password"
+                  minLength={8}
+                  value={userForm.password}
+                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono focus:outline-none focus:border-emerald-500"
+                  placeholder="At least 8 characters"
                 />
               </div>
 

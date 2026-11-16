@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
+import crypto from 'node:crypto'
 import { orderRepository } from '../db/repositories/orderRepository.js'
-import { requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
+import { requirePermission, requireAnyPermission, requireSession, getActiveBranchId } from './authGuard.js'
 import { broadcast } from './localEvents.js'
+import { getDb } from '../db/index.js'
 
 export function registerPosIpcHandlers() {
   ipcMain.handle('pos:create-order', async (_event, orderData) => {
@@ -25,7 +27,7 @@ export function registerPosIpcHandlers() {
   })
 
   ipcMain.handle('pos:process-payment', async (_event, paymentData) => {
-    requirePermission('pos:create_order')
+    requirePermission('pos:process_payment')
     const branchId = getActiveBranchId(paymentData.branchId)
     const session = requireSession()
     const result = orderRepository.processPayment({
@@ -54,8 +56,13 @@ export function registerPosIpcHandlers() {
   })
 
   ipcMain.handle('pos:cancel-order', async (_event, { orderId, reason }) => {
-    requirePermission('pos:create_order')
-    const session = requireSession()
+    const session = requirePermission('pos:void_order')
+    const order = orderRepository.getOrderDetails(orderId)
+    const kitchenStarted = Boolean(order?.kitchen_accepted_at) ||
+      (order?.items || []).some((it) => it.kitchen_status && it.kitchen_status !== 'PENDING')
+    if (kitchenStarted) {
+      requireAnyPermission(['pos:void_prepared', 'staff:manage'])
+    }
     const result = orderRepository.cancelOrder(orderId, reason, session.id)
     broadcast('kitchen:order-update', { orderId, status: 'CANCELLED' })
     return result
@@ -73,10 +80,28 @@ export function registerPosIpcHandlers() {
   })
 
   ipcMain.handle('pos:get-orders', async (_event, params = {}) => {
-    requireSession()
+    requireAnyPermission(['pos:create_order', 'pos:process_payment', 'pos:print_receipt', 'reports:view'])
     return orderRepository.getOrders({
       ...params,
       branchId: getActiveBranchId(params.branchId),
     })
+  })
+
+  ipcMain.handle('pos:record-print', async (_event, { orderId, reprint = false } = {}) => {
+    const session = requirePermission('pos:print_receipt')
+    const db = getDb()
+    db.prepare(`
+      INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+      VALUES (?, ?, ?, ?, 'ORDER', ?, ?, ?)
+    `).run(
+      crypto.randomUUID(),
+      session.branchId || null,
+      session.id,
+      reprint ? 'REPRINT_RECEIPT' : 'PRINT_RECEIPT',
+      orderId || null,
+      JSON.stringify({ reprint: Boolean(reprint), username: session.username }),
+      new Date().toISOString()
+    )
+    return { ok: true }
   })
 }

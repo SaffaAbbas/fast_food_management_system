@@ -3,10 +3,38 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getDb } from '../db/index.js'
 
+function applyEnvPair(name, value) {
+  if (!name || value == null || value === '') return
+  if (process.env[name] == null || process.env[name] === '') {
+    process.env[name] = String(value)
+  }
+}
+
+function loadBundledJson() {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, 'sync-config.json'),
+    process.env.APP_ROOT && path.join(process.env.APP_ROOT, 'build', 'sync-config.json'),
+    path.join(process.cwd(), 'build', 'sync-config.json'),
+  ].filter(Boolean)
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+      applyEnvPair('SUPABASE_URL', parsed.SUPABASE_URL || parsed.url)
+      applyEnvPair('SUPABASE_KEY', parsed.SUPABASE_KEY || parsed.key)
+      break
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function loadDotEnv() {
+  loadBundledJson()
   const candidates = [
     process.env.APP_ROOT && path.join(process.env.APP_ROOT, '.env'),
     path.join(process.cwd(), '.env'),
+    process.resourcesPath && path.join(process.resourcesPath, '.env'),
   ].filter(Boolean)
   for (const file of candidates) {
     try {
@@ -22,15 +50,26 @@ function loadDotEnv() {
         if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
           value = value.slice(1, -1)
         }
-        if (process.env[name] == null || process.env[name] === '') {
-          process.env[name] = value
-        }
+        applyEnvPair(name, value)
       }
       break
     } catch {
       /* ignore missing env file */
     }
   }
+}
+
+/** Turn cloud sync on whenever URL+key exist, unless the user turned it off. */
+export function ensureCloudSyncReady() {
+  loadDotEnv()
+  const url = (getMeta('supabase_url', '') || process.env.SUPABASE_URL || '').trim()
+  const key = (getMeta('supabase_key', '') || process.env.SUPABASE_KEY || '').trim()
+  if (!url || !key) return getSyncConfig()
+  if (getMeta('cloud_sync_disabled_by_user') === '1') return getSyncConfig()
+  setMeta('cloud_sync_enabled', '1')
+  if (!getMeta('supabase_url')) setMeta('supabase_url', url)
+  if (!getMeta('supabase_key')) setMeta('supabase_key', key)
+  return getSyncConfig()
 }
 
 function nowIso() {
@@ -79,7 +118,10 @@ export function getSyncConfig() {
 }
 
 export function saveSyncConfig({ enabled, url, key }) {
-  if (typeof enabled === 'boolean') setMeta('cloud_sync_enabled', enabled ? '1' : '0')
+  if (typeof enabled === 'boolean') {
+    setMeta('cloud_sync_enabled', enabled ? '1' : '0')
+    setMeta('cloud_sync_disabled_by_user', enabled ? '0' : '1')
+  }
   if (url !== undefined) setMeta('supabase_url', (url || '').trim())
   if (key !== undefined && key !== '') setMeta('supabase_key', key.trim())
   return getSyncConfig()

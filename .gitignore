@@ -16,6 +16,7 @@ out
 .env
 .env.*
 !.env.example
+build/sync-config.json
 
 # Editor directories and files
 .vscode/*

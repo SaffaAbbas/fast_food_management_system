@@ -31,7 +31,10 @@ import {
 } from 'lucide-react'
 import ImagePicker from '../../components/ImagePicker.jsx'
 
-export default function DeliveryDispatchView({ onBack }) {
+import { userCan } from '../../lib/access.js'
+
+export default function DeliveryDispatchView({ currentUser, onBack }) {
+  const canDispatch = userCan(currentUser, 'delivery:manage')
   const [activeTab, setActiveTab] = useState('board') // 'board', 'riders', 'zones', 'settlements'
   const [deliveries, setDeliveries] = useState([])
   const [riders, setRiders] = useState([])
@@ -325,6 +328,7 @@ export default function DeliveryDispatchView({ onBack }) {
               <Navigation className="w-3.5 h-3.5" />
               Live Board ({deliveries.length})
             </button>
+            {canDispatch && (
             <button
               onClick={() => setActiveTab('riders')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -336,6 +340,8 @@ export default function DeliveryDispatchView({ onBack }) {
               <Bike className="w-3.5 h-3.5" />
               Riders Fleet ({riders.length})
             </button>
+            )}
+            {canDispatch && (
             <button
               onClick={() => setActiveTab('zones')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -347,6 +353,8 @@ export default function DeliveryDispatchView({ onBack }) {
               <MapPin className="w-3.5 h-3.5" />
               Zones ({zones.length})
             </button>
+            )}
+            {canDispatch && (
             <button
               onClick={() => setActiveTab('settlements')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
@@ -358,6 +366,7 @@ export default function DeliveryDispatchView({ onBack }) {
               <History className="w-3.5 h-3.5" />
               COD History
             </button>
+            )}
           </div>
 
           {activeTab === 'riders' && (
@@ -708,7 +717,22 @@ export default function DeliveryDispatchView({ onBack }) {
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs">
+              <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const next = r.status === 'OFFLINE' ? 'AVAILABLE' : 'OFFLINE'
+                    try {
+                      await window.api.delivery.updateRider(r.id, { status: next })
+                      loadData()
+                    } catch (err) {
+                      setError(err.message)
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 text-[10px] font-bold"
+                >
+                  {r.status === 'OFFLINE' ? 'Set Available' : 'Set Offline'}
+                </button>
                 <span className="text-[11px] text-slate-400">
                   {r.active_deliveries_count || 0} active trip(s)
                 </span>

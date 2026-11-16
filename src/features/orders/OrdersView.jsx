@@ -21,8 +21,13 @@ import {
 } from 'lucide-react'
 import ReceiptModal from '../pos/ReceiptModal.jsx'
 import PaymentModal from '../pos/PaymentModal.jsx'
+import { userCan } from '../../lib/access.js'
 
-export default function OrdersView({ onNavigateToPos, onBack }) {
+export default function OrdersView({ currentUser, onNavigateToPos, onBack }) {
+  const canPay = userCan(currentUser, 'pos:process_payment')
+  const canRefund = userCan(currentUser, 'pos:process_refund')
+  const canPrint = userCan(currentUser, 'pos:print_receipt')
+  const canVoid = userCan(currentUser, 'pos:void_order')
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('ALL') // 'ALL' | 'CONFIRMED' | 'COMPLETED' | 'DRAFT' | 'CANCELLED'
@@ -46,6 +51,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
   const [refundAmount, setRefundAmount] = useState('')
   const [refundReason, setRefundReason] = useState('Customer return')
   const [refundRestock, setRefundRestock] = useState(true)
+  const [refundMethod, setRefundMethod] = useState('ORIGINAL')
   const [refunding, setRefunding] = useState(false)
 
   // Toast
@@ -54,6 +60,20 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
   const showToast = (type, message) => {
     setToast({ type, message })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  const openReceipt = async (order) => {
+    if (!canPrint) {
+      showToast('error', 'You do not have permission to print receipts.')
+      return
+    }
+    const full = order.items ? order : await window.api.pos.getOrder(order.id)
+    try {
+      await window.api.pos.recordPrint?.({ orderId: full.id, reprint: true })
+    } catch {
+      /* print still allowed locally if audit channel missing */
+    }
+    setReceiptOrder(full)
   }
 
   const loadOrders = async () => {
@@ -78,6 +98,12 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
 
   useEffect(() => {
     loadOrders()
+    const unsub = window.api?.on?.('kitchen:order-update', () => loadOrders())
+    const unsubPos = window.api?.on?.('pos:status-change', () => loadOrders())
+    return () => {
+      unsub?.()
+      unsubPos?.()
+    }
   }, [statusFilter, orderTypeFilter, searchQuery])
 
   // View full order details
@@ -130,6 +156,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
         amountCents: Math.round(parseFloat(refundAmount || '0') * 100),
         reason: refundReason.trim(),
         restock: refundRestock,
+        refundMethod: refundMethod === 'ORIGINAL' ? undefined : refundMethod,
       })
       showToast('success', `Refund posted for ${refundModalOrder.order_number}`)
       setRefundModalOrder(null)
@@ -208,7 +235,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
         <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
           {/* Status Pills */}
           <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto scrollbar-none">
-            {['ALL', 'CONFIRMED', 'COMPLETED', 'DRAFT', 'CANCELLED', 'REFUNDED'].map((st) => (
+            {['ALL', 'DRAFT', 'CONFIRMED', 'PREPARING', 'READY', 'SERVED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'REFUNDED'].map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -339,18 +366,17 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
+                          {canPrint && (
                           <button
-                            onClick={async () => {
-                              const full = await window.api.pos.getOrder(o.id)
-                              setReceiptOrder(full)
-                            }}
+                            onClick={() => openReceipt(o)}
                             title="Print Thermal Ticket"
                             className="p-1.5 rounded-lg bg-slate-100 hover:bg-orange-100 text-slate-600 transition-colors cursor-pointer"
                           >
                             <Printer className="w-3.5 h-3.5 text-orange-600" />
                           </button>
+                          )}
 
-                          {!isCancelled && !isCompleted && o.status !== 'REFUNDED' && (
+                          {canVoid && !isCancelled && !isCompleted && o.status !== 'REFUNDED' && (
                             <button
                               onClick={() => setCancelModalOrder(o)}
                               title="Cancel Order"
@@ -359,7 +385,7 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
                               <Ban className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {isCompleted && (
+                          {canRefund && isCompleted && (
                             <button
                               onClick={() => {
                                 setRefundModalOrder(o)
@@ -521,14 +547,16 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
 
                 {/* Action Controls in Drawer */}
                 <div className="pt-2 flex flex-col gap-2">
+                  {canPrint && (
                   <button
-                    onClick={() => setReceiptOrder(selectedOrderDetails)}
+                    onClick={() => openReceipt(selectedOrderDetails)}
                     className="w-full py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-md cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <Printer className="w-4 h-4" /> Print Thermal Receipt
+                    <Printer className="w-4 h-4" /> Print / Reprint receipt
                   </button>
+                  )}
 
-                  {selectedOrderDetails.status !== 'COMPLETED' && selectedOrderDetails.status !== 'CANCELLED' && (
+                  {canPay && selectedOrderDetails.status !== 'COMPLETED' && selectedOrderDetails.status !== 'CANCELLED' && (
                     <button
                       onClick={() => setPaymentOrder(selectedOrderDetails)}
                       className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer flex items-center justify-center gap-2"
@@ -610,6 +638,14 @@ export default function OrdersView({ onNavigateToPos, onBack }) {
               <input required value={refundReason} onChange={(e) => setRefundReason(e.target.value)} className="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white" />
             </label>
             <label className="flex items-center gap-2 text-xs text-slate-300">
+              <label className="text-xs text-slate-400">Refund method</label>
+              <select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value)} className="mt-1 w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white text-xs">
+                <option value="ORIGINAL">Original payment method</option>
+                <option value="CASH">Cash</option>
+                <option value="CARD">Card</option>
+                <option value="BANK_TRANSFER">Bank</option>
+                <option value="WALLET">Online / wallet</option>
+              </select>
               <input type="checkbox" checked={refundRestock} onChange={(e) => setRefundRestock(e.target.checked)} />
               Restock recipe ingredients if this refund completes the order
             </label>

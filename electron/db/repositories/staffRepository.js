@@ -345,6 +345,37 @@ export const staffRepository = {
     return db.prepare('SELECT * FROM staff_attendance WHERE id = ?').get(attendanceId)
   },
 
+  markAttendance: ({ employeeId, branchId, status, notes, shiftId = null }) => {
+    const db = getDb()
+    const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId)
+    if (!emp) throw new Error('Employee not found.')
+    const code = String(status || 'PRESENT').toUpperCase()
+    if (!['PRESENT', 'ABSENT', 'LATE', 'LEAVE'].includes(code)) {
+      throw new Error('Attendance status must be Present, Absent, Late or Leave.')
+    }
+    const now = new Date().toISOString()
+    const id = uuid()
+    db.prepare(`
+      INSERT INTO staff_attendance (
+        id, branch_id, employee_id, shift_id, clock_in, clock_out,
+        break_minutes, total_work_minutes, status, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
+    `).run(
+      id,
+      emp.branch_id || branchId,
+      employeeId,
+      shiftId,
+      now,
+      ['ABSENT', 'LEAVE'].includes(code) ? now : null,
+      code,
+      notes || null,
+      now,
+      now
+    )
+    logAudit(emp.branch_id, 'MARK_ATTENDANCE', 'ATTENDANCE', id, { employeeId, status: code })
+    return db.prepare('SELECT * FROM staff_attendance WHERE id = ?').get(id)
+  },
+
   /**
    * Get attendance logs
    */
@@ -579,7 +610,21 @@ export const staffRepository = {
       id
     )
 
-    logAudit(existing.branch_id, 'UPDATE_USER', 'USER', id, { ...userData })
+    logAudit(existing.branch_id, 'UPDATE_USER', 'USER', id, {
+      displayName: userData.displayName,
+      roleId: userData.roleId,
+      isActive: userData.isActive,
+      pinChanged: Boolean(userData.pin),
+      passwordChanged: Boolean(userData.password),
+    })
+    if (targetRoleId && targetRoleId !== existing.role_id) {
+      logAudit(existing.branch_id, 'PERMISSION_CHANGE', 'USER', id, {
+        username: existing.username,
+        fromRoleId: existing.role_id,
+        toRoleId: targetRoleId,
+        toRole: targetRole?.code || null,
+      })
+    }
 
     return db.prepare(`
       SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name,

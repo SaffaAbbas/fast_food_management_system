@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   ShoppingBag,
   Search,
@@ -28,21 +28,29 @@ import {
   Ticket,
   ArrowLeft
 } from 'lucide-react'
+import { userCan } from '../../lib/access.js'
 import PaymentModal from './PaymentModal.jsx'
 import ReceiptModal from './ReceiptModal.jsx'
 import { EntityImage } from '../../components/ImagePicker.jsx'
 
 export default function PosView({ currentUser, preselectedTable, onNavigateToTables, onNavigateToDashboard, onBack }) {
+  const canPay = userCan(currentUser, 'pos:process_payment')
+  const canDiscount = userCan(currentUser, 'pos:apply_discount')
   // Order Parameters
   const [orderType, setOrderType] = useState('DINE_IN') // 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'
   const [selectedTable, setSelectedTable] = useState(preselectedTable || null)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
+  const [deliveryZones, setDeliveryZones] = useState([])
+  const [selectedZoneId, setSelectedZoneId] = useState('')
+  const [kitchenLiveStatus, setKitchenLiveStatus] = useState(null)
   const [orderNotes, setOrderNotes] = useState('')
   const [orderNumber, setOrderNumber] = useState(`ORD-${Date.now().toString().slice(-6)}`)
+  const [editingOrderId, setEditingOrderId] = useState(null)
 
   // Catalog Data
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
+  const [combos, setCombos] = useState([])
   const [selectedCategory, setSelectedCategory] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [loadingCatalog, setLoadingCatalog] = useState(true)
@@ -51,6 +59,8 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
   const [cart, setCart] = useState([])
   const [discountCents, setDiscountCents] = useState(0)
   const [discountReason, setDiscountReason] = useState('')
+  const [appliedCoupon, setAppliedCoupon] = useState(null)
+  const discountLockRef = useRef(null)
 
   // Settings
   const [settings, setSettings] = useState({
@@ -67,6 +77,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
 
   // Modals
   const [customizingProduct, setCustomizingProduct] = useState(null) // Product for variation/modifiers modal
+  const [customizingCombo, setCustomizingCombo] = useState(null)
   const [isTableModalOpen, setIsTableModalOpen] = useState(false)
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false)
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false)
@@ -86,21 +97,30 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
     setLoadingCatalog(true)
     try {
       if (window.api) {
-        const [cats, prods, sysSettings, held] = await Promise.all([
+        const [cats, prods, deals, sysSettings, held, zones] = await Promise.all([
           window.api.product?.getCategories ? window.api.product.getCategories() : [],
           window.api.product?.getProducts ? window.api.product.getProducts({ includeInactive: false }) : [],
+          window.api.product?.getCombos ? window.api.product.getCombos() : [],
           window.api.db?.getSettings ? window.api.db.getSettings() : {},
           window.api.pos?.getHeldOrders ? window.api.pos.getHeldOrders() : [],
+          window.api.delivery?.getZones ? window.api.delivery.getZones() : [],
         ])
-        setCategories(cats || [])
-        setProducts(prods || [])
+        const visibleCats = (cats || []).filter((c) => c.is_visible_pos !== 0)
+        const visibleCatIds = new Set(visibleCats.map((c) => c.id))
+        setCategories(visibleCats)
+        setProducts((prods || []).filter((p) => !p.category_id || visibleCatIds.has(p.category_id)))
+        setCombos(deals || [])
         setHeldOrders(held || [])
+        setDeliveryZones((zones || []).filter((z) => z.is_active !== 0))
 
         if (sysSettings) {
           setSettings({
             taxRate: parseFloat(sysSettings.tax_rate_percentage || 5.0),
             serviceChargeRate: parseFloat(sysSettings.service_charge_percentage || 0.0),
             deliveryChargeCents: Math.round(parseFloat(sysSettings.delivery_fee || 3.0) * 100),
+            loyaltyEarnPerDollar: parseFloat(sysSettings.loyalty_earn_per_dollar || 1),
+            loyaltyRedeemMin: parseInt(sysSettings.loyalty_redeem_min || 50, 10),
+            loyaltyCentsPerPoint: parseInt(sysSettings.loyalty_cents_per_point || 1, 10),
             businessName: sysSettings.business_name || 'FastBite Gourmet Grill',
             currencySymbol: sysSettings.currency_symbol || '$',
           })
@@ -116,6 +136,17 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
 
   useEffect(() => {
     loadData()
+    const unsubKitchen = window.api?.on?.('kitchen:order-update', (payload) => {
+      setKitchenLiveStatus(payload?.status || payload?.itemStatus || 'updated')
+      showToast('success', `Kitchen: ${payload?.status || payload?.itemStatus || 'updated'}`)
+    })
+    const unsubPos = window.api?.on?.('pos:status-change', (payload) => {
+      if (payload?.status) setKitchenLiveStatus(payload.status)
+    })
+    return () => {
+      unsubKitchen?.()
+      unsubPos?.()
+    }
   }, [])
 
   useEffect(() => {
@@ -152,6 +183,8 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
       unitPriceCents: getProductChannelPrice(product, orderType),
       modifiers: [],
       notes: '',
+      categoryId: product.category_id,
+      isDiscountEligible: product.is_discount_eligible !== 0,
     })
   }
 
@@ -164,9 +197,23 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
   }
 
   // Add Item To Cart
-  const addItemToCart = ({ productId, name, variationId, variationName, unitPriceCents, modifiers = [], notes = '' }) => {
+  const addItemToCart = ({
+    productId,
+    name,
+    variationId,
+    variationName,
+    unitPriceCents,
+    modifiers = [],
+    notes = '',
+    quantity = 1,
+    silent = false,
+    categoryId = null,
+    comboId = null,
+    isDiscountEligible = true,
+  }) => {
     const modifierTotalCents = modifiers.reduce((acc, m) => acc + (m.priceCents || 0), 0)
     const totalUnitCents = unitPriceCents + modifierTotalCents
+    const addQty = Math.max(1, parseInt(quantity, 10) || 1)
 
     // Generate unique signature for grouping identical items
     const signature = `${productId}_${variationId || 'base'}_${modifiers.map(m => m.id || m.name).sort().join('_')}_${notes}`
@@ -178,8 +225,8 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
           idx === existingIdx
             ? {
                 ...item,
-                quantity: item.quantity + 1,
-                totalCents: (item.quantity + 1) * totalUnitCents,
+                quantity: item.quantity + addQty,
+                totalCents: (item.quantity + addQty) * totalUnitCents,
               }
             : item
         )
@@ -194,15 +241,86 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
           variationId,
           variationName,
           unitPriceCents: totalUnitCents,
-          quantity: 1,
-          totalCents: totalUnitCents,
+          quantity: addQty,
+          totalCents: addQty * totalUnitCents,
           modifiers,
           notes,
+          categoryId,
+          comboId,
+          isDiscountEligible: isDiscountEligible !== 0 && isDiscountEligible !== false,
         },
       ]
     })
 
-    showToast('success', `Added "${name}" to order`)
+    if (!silent) showToast('success', `Added "${name}" to order`)
+  }
+
+  const comboIsLive = (combo) => {
+    if (!combo || combo.is_available === 0) return false
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    if (combo.available_from && today < String(combo.available_from).slice(0, 10)) return false
+    if (combo.available_to && today > String(combo.available_to).slice(0, 10)) return false
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    const fromT = combo.available_from_time ? String(combo.available_from_time).slice(0, 5) : null
+    const toT = combo.available_to_time ? String(combo.available_to_time).slice(0, 5) : null
+    if (fromT && toT && fromT > toT) {
+      if (!(hhmm >= fromT || hhmm <= toT)) return false
+    } else {
+      if (fromT && hhmm < fromT) return false
+      if (toT && hhmm > toT) return false
+    }
+    return true
+  }
+
+  const commitComboToCart = (combo, chosenChoiceItems = []) => {
+    const included = (combo.items || []).filter((it) => !it.choice_group)
+    const lines = [...included, ...chosenChoiceItems]
+    if (lines.length === 0) {
+      showToast('error', 'This combo has no products configured.')
+      return
+    }
+    const [first, ...rest] = lines
+    addItemToCart({
+      productId: first.product_id,
+      name: combo.name,
+      unitPriceCents: combo.price_cents,
+      notes: `Combo: ${lines.map((l) => `${l.quantity || 1}× ${l.product_name}`).join(', ')}`,
+      quantity: first.quantity || 1,
+      silent: true,
+      comboId: combo.id,
+      categoryId: first.category_id || null,
+    })
+    for (const extra of rest) {
+      addItemToCart({
+        productId: extra.product_id,
+        name: extra.product_name,
+        unitPriceCents: 0,
+        notes: `Part of ${combo.name}`,
+        quantity: extra.quantity || 1,
+        silent: true,
+        comboId: combo.id,
+      })
+    }
+    showToast('success', `Added combo "${combo.name}"`)
+  }
+
+  const handleComboClick = (combo) => {
+    if (!comboIsLive(combo)) {
+      showToast('error', `"${combo.name}" is not available right now.`)
+      return
+    }
+    const groups = {}
+    for (const it of combo.items || []) {
+      if (!it.choice_group) continue
+      if (!groups[it.choice_group]) groups[it.choice_group] = []
+      groups[it.choice_group].push(it)
+    }
+    if (Object.keys(groups).length > 0) {
+      setCustomizingCombo({ combo, groups })
+      return
+    }
+    commitComboToCart(combo)
   }
 
   // Cart Item Quantity Stepper
@@ -234,8 +352,120 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
   const afterDiscountCents = Math.max(0, subtotalCents - discountCents)
   const taxCents = Math.round((afterDiscountCents * settings.taxRate) / 100)
   const serviceChargeCents = orderType === 'DINE_IN' ? Math.round((afterDiscountCents * settings.serviceChargeRate) / 100) : 0
-  const deliveryChargeCents = orderType === 'DELIVERY' ? settings.deliveryChargeCents : 0
+  const selectedZone = deliveryZones.find((z) => z.id === selectedZoneId)
+  const deliveryChargeCents =
+    orderType === 'DELIVERY'
+      ? (selectedZone?.delivery_charge_cents ?? settings.deliveryChargeCents)
+      : 0
   const grandTotalCents = afterDiscountCents + taxCents + serviceChargeCents + deliveryChargeCents
+  const itemDiscountCents = cart.reduce((acc, item) => acc + (item.discountCents || 0), 0)
+
+  const cartPromoItems = cart.map((it) => ({
+    productId: it.productId,
+    categoryId: it.categoryId,
+    comboId: it.comboId,
+    quantity: it.quantity,
+    unitPriceCents: it.unitPriceCents,
+    totalCents: it.totalCents,
+    isDiscountEligible: it.isDiscountEligible,
+  }))
+
+  useEffect(() => {
+    let cancelled = false
+    const applyPromo = async () => {
+      const lock = discountLockRef.current
+      if (lock === 'loyalty') return
+      if (lock === 'manual' && appliedCoupon?.code && window.api?.coupons?.validate) {
+        try {
+          const res = await window.api.coupons.validate({
+            code: appliedCoupon.code,
+            orderTotalCents: subtotalCents,
+            customerId: selectedCustomer?.id,
+            items: cartPromoItems,
+          })
+          if (!cancelled) {
+            setDiscountCents(res.discountCents)
+            setDiscountReason(`Coupon: ${res.coupon.code} (${res.coupon.title})`)
+            setAppliedCoupon({ id: res.coupon.id, code: res.coupon.code })
+          }
+        } catch {
+          if (!cancelled) {
+            setDiscountCents(0)
+            setDiscountReason('')
+            setAppliedCoupon(null)
+            discountLockRef.current = null
+          }
+        }
+        return
+      }
+      if (lock === 'manual') return
+
+      let auto = null
+      if (window.api?.coupons?.evaluateAuto && subtotalCents > 0) {
+        try {
+          auto = await window.api.coupons.evaluateAuto({
+            orderTotalCents: subtotalCents,
+            customerId: selectedCustomer?.id,
+            items: cartPromoItems,
+          })
+        } catch {
+          auto = null
+        }
+      }
+      const custCents = selectedCustomer?.discount_percent
+        ? Math.round(subtotalCents * (Number(selectedCustomer.discount_percent) / 100))
+        : 0
+      if (cancelled) return
+      if (custCents > (auto?.discountCents || 0)) {
+        setDiscountCents(custCents)
+        setDiscountReason(`Customer ${selectedCustomer.tag || ''} ${selectedCustomer.discount_percent}%`)
+        setAppliedCoupon(null)
+      } else if (auto?.discountCents > 0) {
+        setDiscountCents(auto.discountCents)
+        setDiscountReason(`Promo: ${auto.code} (${auto.title})`)
+        setAppliedCoupon({ id: auto.coupon?.id, code: auto.code })
+      } else {
+        setDiscountCents(0)
+        setDiscountReason('')
+        setAppliedCoupon(null)
+      }
+    }
+    applyPromo()
+    return () => {
+      cancelled = true
+    }
+  }, [subtotalCents, selectedCustomer, cart.length])
+
+  const buildOrderPayload = (status) => ({
+    id: editingOrderId || undefined,
+    orderNumber,
+    orderType,
+    status,
+    tableId: orderType === 'DINE_IN' ? selectedTable?.id || null : null,
+    customerId: selectedCustomer?.id || preselectedTable?.customerId || null,
+    reservationId: selectedTable?.reservationId || preselectedTable?.reservationId || null,
+    subtotalCents,
+    discountCents,
+    discountReason,
+    couponId: appliedCoupon?.id || null,
+    couponCode: appliedCoupon?.code || null,
+    taxCents,
+    serviceChargeCents,
+    deliveryChargeCents,
+    totalCents: grandTotalCents,
+    notes: orderNotes,
+    items: cart.map((it) => ({
+      productId: it.productId,
+      variationId: it.variationId,
+      name: it.variationName ? `${it.name} (${it.variationName})` : it.name,
+      quantity: it.quantity,
+      unitPriceCents: it.unitPriceCents,
+      discountCents: it.discountCents || 0,
+      totalCents: it.totalCents,
+      notes: it.notes,
+      modifiers: it.modifiers,
+    })),
+  })
 
   // Hold Order
   const handleHoldOrder = async () => {
@@ -245,33 +475,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
     }
 
     try {
-      const heldOrderData = {
-        orderNumber,
-        orderType,
-        tableId: orderType === 'DINE_IN' ? selectedTable?.id || null : null,
-        customerId: selectedCustomer?.id || null,
-        subtotalCents,
-        discountCents,
-        discountReason,
-        taxCents,
-        serviceChargeCents,
-        deliveryChargeCents,
-        totalCents: grandTotalCents,
-        notes: orderNotes,
-        items: cart.map((it) => ({
-          productId: it.productId,
-          variationId: it.variationId,
-          name: it.variationName ? `${it.name} (${it.variationName})` : it.name,
-          quantity: it.quantity,
-          unitPriceCents: it.unitPriceCents,
-          discountCents: 0,
-          totalCents: it.totalCents,
-          notes: it.notes,
-          modifiers: it.modifiers,
-        })),
-      }
-
-      await window.api.pos.holdOrder(heldOrderData)
+      await window.api.pos.holdOrder(buildOrderPayload('DRAFT'))
       showToast('success', `Order ${orderNumber} placed on Hold!`)
 
       // Reset cart and refresh held list
@@ -294,6 +498,8 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
       setOrderType(full.order_type)
       setDiscountCents(full.discount_cents || 0)
       setDiscountReason(full.discount_reason || '')
+      setAppliedCoupon(full.coupon_code ? { id: full.coupon_id, code: full.coupon_code } : null)
+      discountLockRef.current = full.coupon_code ? 'manual' : null
       setOrderNotes(full.notes || '')
       if (full.table_id) {
         setSelectedTable({ id: full.table_id, table_number: full.table_number, floor_name: full.floor_name })
@@ -317,20 +523,37 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
       }))
 
       setCart(reconstructedCart)
+      const isPaid = (full.paid_cents || 0) > 0 && (full.paid_cents || 0) >= (full.total_cents || 0)
+      setEditingOrderId(isPaid ? null : full.id)
       setIsHeldDrawerOpen(false)
-      showToast('success', `Recalled Order ${full.order_number}`)
+      showToast(
+        'success',
+        isPaid
+          ? `Opened paid order ${full.order_number} (view only — start a new ticket for extras)`
+          : `Opened order ${full.order_number} — add items then Send or Pay`
+      )
     } catch (err) {
       showToast('error', `Recall failed: ${err.message}`)
     }
   }
+
+  useEffect(() => {
+    if (preselectedTable?.current_order_id) {
+      handleRecallOrder({ id: preselectedTable.current_order_id })
+    }
+  }, [preselectedTable?.current_order_id])
 
   // Reset Cart / Start Fresh
   const resetCart = () => {
     setCart([])
     setDiscountCents(0)
     setDiscountReason('')
+    setAppliedCoupon(null)
+    discountLockRef.current = null
     setOrderNotes('')
     setSelectedCustomer(null)
+    setSelectedTable(null)
+    setEditingOrderId(null)
     setOrderNumber(`ORD-${Date.now().toString().slice(-6)}`)
   }
 
@@ -347,36 +570,40 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
       return
     }
 
-    try {
-      // First save / confirm order into database
-      const orderPayload = {
-        orderNumber,
-        orderType,
-        status: 'CONFIRMED',
-        tableId: orderType === 'DINE_IN' ? selectedTable?.id || null : null,
-        customerId: selectedCustomer?.id || null,
-        subtotalCents,
-        discountCents,
-        discountReason,
-        taxCents,
-        serviceChargeCents,
-        deliveryChargeCents,
-        totalCents: grandTotalCents,
-        notes: orderNotes,
-        items: cart.map((it) => ({
-          productId: it.productId,
-          variationId: it.variationId,
-          name: it.variationName ? `${it.name} (${it.variationName})` : it.name,
-          quantity: it.quantity,
-          unitPriceCents: it.unitPriceCents,
-          discountCents: 0,
-          totalCents: it.totalCents,
-          notes: it.notes,
-          modifiers: it.modifiers,
-        })),
-      }
+    if (orderType === 'DELIVERY' && !selectedCustomer) {
+      setIsCustomerModalOpen(true)
+      showToast('error', 'Select or create a customer for delivery.')
+      return
+    }
 
-      const created = await window.api.pos.createOrder(orderPayload)
+    if (orderType === 'DELIVERY' && selectedZone?.min_order_cents && grandTotalCents < selectedZone.min_order_cents) {
+      showToast(
+        'error',
+        `Minimum order for ${selectedZone.name} is $${(selectedZone.min_order_cents / 100).toFixed(2)}.`
+      )
+      return
+    }
+
+    try {
+      const created = await window.api.pos.createOrder(buildOrderPayload('CONFIRMED'))
+      if (orderType === 'DELIVERY' && window.api.delivery?.createDelivery) {
+        try {
+          await window.api.delivery.createDelivery({
+            orderId: created.id,
+            zoneId: selectedZoneId || undefined,
+            customerName: selectedCustomer.name,
+            customerPhone: selectedCustomer.phone || 'N/A',
+            deliveryAddress: selectedCustomer.address || 'Address on file',
+          })
+        } catch (delivErr) {
+          showToast('error', `Order sent but delivery ticket failed: ${delivErr.message}`)
+        }
+      }
+      if (!canPay) {
+        showToast('success', `Order ${created.orderNumber || created.order_number} sent to kitchen`)
+        resetCart()
+        return
+      }
       setActivePaymentOrder(created)
     } catch (err) {
       showToast('error', `Order creation failed: ${err.message}`)
@@ -392,7 +619,17 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
   }
 
   // Filter products by category & search term
+  const liveCombos = combos.filter((c) => comboIsLive(c) && c.is_active !== 0)
+  const filteredCombos = liveCombos.filter((c) => {
+    if (selectedCategory && selectedCategory !== '__combos__') return false
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase().trim()
+      return c.name.toLowerCase().includes(q) || c.code?.toLowerCase().includes(q)
+    }
+    return selectedCategory === '' || selectedCategory === '__combos__'
+  })
   const filteredProducts = products.filter((p) => {
+    if (selectedCategory === '__combos__') return false
     if (selectedCategory && p.category_id !== selectedCategory) return false
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase().trim()
@@ -458,6 +695,26 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
             )
           })}
         </div>
+          {orderType === 'DELIVERY' && deliveryZones.length > 0 && (
+            <select
+              value={selectedZoneId}
+              onChange={(e) => setSelectedZoneId(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+            >
+              <option value="">Default delivery fee</option>
+              {deliveryZones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name} · ${((z.delivery_charge_cents || 0) / 100).toFixed(2)}
+                  {z.min_order_cents ? ` min $${(z.min_order_cents / 100).toFixed(2)}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          {kitchenLiveStatus && (
+            <span className="text-[11px] font-bold px-2 py-1 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-800">
+              Kitchen {kitchenLiveStatus}
+            </span>
+          )}
       </div>
 
         {/* Dynamic Context Badges (Table, Customer, Held Counter) */}
@@ -531,7 +788,18 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search food by name, SKU, barcode..."
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || !searchQuery.trim()) return
+                  const q = searchQuery.trim().toLowerCase()
+                  const exact = products.find((p) =>
+                    p.barcode?.toLowerCase() === q || p.sku?.toLowerCase() === q
+                  )
+                  if (exact) {
+                    handleProductClick(exact)
+                    setSearchQuery('')
+                  }
+                }}
+                placeholder="Search name, SKU, barcode — Enter to add exact SKU/barcode"
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
               />
               {searchQuery && (
@@ -556,6 +824,18 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
               >
                 All Menu
               </button>
+              {liveCombos.length > 0 && (
+                <button
+                  onClick={() => setSelectedCategory('__combos__')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                    selectedCategory === '__combos__'
+                      ? 'bg-amber-500 text-slate-950 shadow-md'
+                      : 'bg-slate-900 text-amber-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  Deals
+                </button>
+              )}
               {categories.map((cat) => (
                 <button
                   key={cat.id}
@@ -578,12 +858,31 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
               <div className="h-full flex items-center justify-center text-xs text-slate-500">
                 Loading menu catalog...
               </div>
-            ) : filteredProducts.length === 0 ? (
+            ) : filteredProducts.length === 0 && filteredCombos.length === 0 ? (
               <div className="bg-slate-950/40 border border-slate-800 border-dashed rounded-2xl p-12 text-center text-xs text-slate-500">
                 No matching menu items found.
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                {filteredCombos.map((combo) => (
+                  <div
+                    key={combo.id}
+                    onClick={() => handleComboClick(combo)}
+                    className="group relative bg-amber-950/20 border border-amber-800/70 rounded-2xl p-3 flex flex-col justify-between transition-all select-none cursor-pointer hover:border-amber-400 hover:shadow-xl hover:shadow-amber-950/20 active:scale-[0.98]"
+                  >
+                    <div className="flex items-start justify-between gap-1 mb-2">
+                      <span className="text-[10px] text-amber-400 font-bold uppercase">Combo</span>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <h4 className="text-sm font-black text-white leading-tight mb-1">{combo.name}</h4>
+                    <p className="text-[10px] text-slate-400 line-clamp-2 mb-2">
+                      {(combo.items || []).map((it) => it.product_name).join(' · ') || combo.description}
+                    </p>
+                    <div className="mt-auto text-sm font-mono font-black text-amber-300">
+                      ${((combo.price_cents || 0) / 100).toFixed(2)}
+                    </div>
+                  </div>
+                ))}
                 {filteredProducts.map((p) => {
                   const channelPrice = getProductChannelPrice(p, orderType)
                   const isAvailable = p.is_available === 1
@@ -615,19 +914,29 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                         </div>
                       </div>
 
-                      {p.image_url && (
+                      {p.image_url ? (
                         <EntityImage
                           id={p.image_url}
                           alt={p.name}
                           className="w-full aspect-square rounded-xl mb-2 bg-white"
                         />
+                      ) : (
+                        <div className="w-full aspect-square rounded-xl mb-2 bg-slate-100 flex items-center justify-center text-slate-400">
+                          <ShoppingBag className="w-8 h-8" />
+                        </div>
                       )}
-                      {/* Product Name */}
                       <h4 className="font-bold text-xs text-white line-clamp-2 leading-snug group-hover:text-orange-400 transition-colors">
                         {p.name}
                       </h4>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                        {p.preparation_time_minutes ? (
+                          <span className="flex items-center gap-0.5"><Clock className="w-3 h-3" /> {p.preparation_time_minutes} min</span>
+                        ) : null}
+                        <span className={isAvailable ? 'text-emerald-600' : 'text-rose-500'}>
+                          {isAvailable ? 'Available' : 'Unavailable'}
+                        </span>
+                      </div>
 
-                      {/* Bottom Price & Controls */}
                       <div className="mt-3 pt-2.5 border-t border-slate-800/70 flex items-center justify-between">
                         <div>
                           <div className="text-sm font-mono font-black text-emerald-400">
@@ -674,6 +983,13 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
 
           {/* Cart Items List */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2 divide-y divide-slate-800/60">
+            <textarea
+              value={orderNotes}
+              onChange={(e) => setOrderNotes(e.target.value)}
+              placeholder="Order notes for kitchen / rider…"
+              rows={2}
+              className="w-full mb-2 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-white placeholder-slate-500"
+            />
             {cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-2">
                 <ShoppingBag className="w-10 h-10 text-slate-700 stroke-1" />
@@ -731,6 +1047,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                       @ ${(item.unitPriceCents / 100).toFixed(2)}
                     </span>
 
+                    <div className="flex items-center gap-1.5">
                     <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
                       <button
                         onClick={() => updateQuantity(item.cartId, -1)}
@@ -748,6 +1065,10 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                         <Plus className="w-3 h-3" />
                       </button>
                     </div>
+                    <button onClick={() => removeCartItem(item.cartId)} className="w-6 h-6 rounded text-rose-400 hover:bg-rose-950/40 flex items-center justify-center">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -762,14 +1083,18 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                 <span className="font-mono text-slate-200">${(subtotalCents / 100).toFixed(2)}</span>
               </div>
 
-              {/* Discount Row */}
+              <div className="flex justify-between text-slate-400">
+                <span>Item discounts:</span>
+                <span className="font-mono text-amber-400">-${(itemDiscountCents / 100).toFixed(2)}</span>
+              </div>
+
               <div className="flex justify-between items-center text-slate-400">
                 <button
                   onClick={() => setIsDiscountModalOpen(true)}
                   className="flex items-center gap-1 text-[11px] text-amber-400 hover:underline cursor-pointer"
                 >
                   <Percent className="w-3 h-3" />
-                  <span>Discount {discountCents > 0 ? `(-$${(discountCents / 100).toFixed(2)})` : ''}</span>
+                  <span>Order discount / coupon</span>
                 </button>
                 <span className="font-mono text-amber-400 font-semibold">
                   -${(discountCents / 100).toFixed(2)}
@@ -781,19 +1106,15 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                 <span className="font-mono text-slate-200">${(taxCents / 100).toFixed(2)}</span>
               </div>
 
-              {orderType === 'DINE_IN' && settings.serviceChargeRate > 0 && (
-                <div className="flex justify-between text-slate-400">
-                  <span>Service ({settings.serviceChargeRate}%):</span>
-                  <span className="font-mono text-slate-200">${(serviceChargeCents / 100).toFixed(2)}</span>
-                </div>
-              )}
+              <div className="flex justify-between text-slate-400">
+                <span>Service charge{orderType === 'DINE_IN' ? ` (${settings.serviceChargeRate}%)` : ''}:</span>
+                <span className="font-mono text-slate-200">${(serviceChargeCents / 100).toFixed(2)}</span>
+              </div>
 
-              {orderType === 'DELIVERY' && (
-                <div className="flex justify-between text-slate-400">
-                  <span>Delivery Fee:</span>
-                  <span className="font-mono text-slate-200">${(deliveryChargeCents / 100).toFixed(2)}</span>
-                </div>
-              )}
+              <div className="flex justify-between text-slate-400">
+                <span>Delivery charge:</span>
+                <span className="font-mono text-slate-200">${(deliveryChargeCents / 100).toFixed(2)}</span>
+              </div>
 
               {/* Grand Total Bar */}
               <div className="pt-2 border-t border-slate-800 flex justify-between items-baseline">
@@ -812,7 +1133,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                 className="flex items-center justify-center gap-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-bold transition-all cursor-pointer"
               >
                 <Bookmark className="w-3.5 h-3.5 text-amber-400" />
-                Hold
+                {editingOrderId ? 'Save hold' : 'Hold'}
               </button>
 
               <button
@@ -821,7 +1142,7 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
                 className="col-span-2 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black shadow-lg shadow-emerald-950 transition-all cursor-pointer"
               >
                 <CreditCard className="w-4 h-4" />
-                Pay ${(grandTotalCents / 100).toFixed(2)}
+                {canPay ? `Pay $${(grandTotalCents / 100).toFixed(2)}` : 'Send to kitchen'}
               </button>
             </div>
           </div>
@@ -836,9 +1157,25 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
           product={customizingProduct}
           orderType={orderType}
           onClose={() => setCustomizingProduct(null)}
-          onConfirm={(customizedItem) => {
-            addItemToCart(customizedItem)
+            onConfirm={(customizedItem) => {
+            addItemToCart({
+              ...customizedItem,
+              categoryId: customizingProduct.category_id,
+              isDiscountEligible: customizingProduct.is_discount_eligible !== 0,
+            })
             setCustomizingProduct(null)
+          }}
+        />
+      )}
+
+      {customizingCombo && (
+        <ComboChoiceModal
+          combo={customizingCombo.combo}
+          groups={customizingCombo.groups}
+          onClose={() => setCustomizingCombo(null)}
+          onConfirm={(chosen) => {
+            commitComboToCart(customizingCombo.combo, chosen)
+            setCustomizingCombo(null)
           }}
         />
       )}
@@ -868,6 +1205,9 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
           onSelect={(c) => {
             setSelectedCustomer(c)
             setIsCustomerModalOpen(false)
+            if (discountLockRef.current !== 'manual' && discountLockRef.current !== 'loyalty') {
+              discountLockRef.current = null
+            }
             showToast('success', `Customer set to "${c.name}"`)
           }}
         />
@@ -881,10 +1221,16 @@ export default function PosView({ currentUser, preselectedTable, onNavigateToTab
           subtotalCents={subtotalCents}
           currentDiscountCents={discountCents}
           currentReason={discountReason}
+          customer={selectedCustomer}
+          loyaltySettings={settings}
+          cartItems={cart}
+          canManualDiscount={canDiscount}
           onClose={() => setIsDiscountModalOpen(false)}
-          onApply={(cents, reason) => {
+          onApply={(cents, reason, coupon = null, lock = 'manual') => {
             setDiscountCents(cents)
             setDiscountReason(reason)
+            setAppliedCoupon(coupon)
+            discountLockRef.current = cents > 0 ? lock : null
             setIsDiscountModalOpen(false)
             showToast('success', `Applied $${(cents / 100).toFixed(2)} discount`)
           }}
@@ -949,33 +1295,47 @@ function ProductCustomizerModal({ product, orderType, onClose, onConfirm }) {
 
   const handleToggleModifier = (group, mod) => {
     setSelectedModifiers((prev) => {
-      const exists = prev.some((m) => m.id === mod.id)
+      const exists = prev.find((m) => m.id === mod.id)
       if (exists) {
         return prev.filter((m) => m.id !== mod.id)
-      } else {
-        // Enforce maxSelection rule if configured
-        const currentInGroup = prev.filter((m) => m.groupId === group.id)
-        if (group.max_selection && currentInGroup.length >= group.max_selection) {
-          // Replace first in group
-          const otherGroups = prev.filter((m) => m.groupId !== group.id)
-          return [...otherGroups, { ...mod, groupId: group.id, priceCents: mod.price_cents }]
-        }
-        return [...prev, { ...mod, groupId: group.id, priceCents: mod.price_cents }]
       }
+      const currentInGroup = prev.filter((m) => m.groupId === group.id)
+      if (group.max_selection && currentInGroup.length >= group.max_selection) {
+        const otherGroups = prev.filter((m) => m.groupId !== group.id)
+        return [...otherGroups, { ...mod, groupId: group.id, priceCents: mod.price_cents, quantity: 1 }]
+      }
+      return [...prev, { ...mod, groupId: group.id, priceCents: mod.price_cents, quantity: 1 }]
     })
   }
 
-  const modifierTotalCents = selectedModifiers.reduce((acc, m) => acc + m.price_cents, 0)
+  const bumpModifierQty = (modId, delta) => {
+    setSelectedModifiers((prev) =>
+      prev
+        .map((m) => (m.id === modId ? { ...m, quantity: Math.max(0, (m.quantity || 1) + delta) } : m))
+        .filter((m) => (m.quantity || 1) > 0)
+    )
+  }
+
+  const modifierTotalCents = selectedModifiers.reduce((acc, m) => acc + (m.price_cents || 0) * (m.quantity || 1), 0)
   const totalItemCents = basePriceCents + modifierTotalCents
 
   const handleConfirm = () => {
+    const missing = modifierGroups.find(
+      (g) => g.is_required && !selectedModifiers.some((m) => m.groupId === g.id)
+    )
+    if (missing) return
     onConfirm({
       productId: product.id,
       name: product.name,
       variationId: selectedVariation?.id || null,
       variationName: selectedVariation?.name || null,
       unitPriceCents: basePriceCents,
-      modifiers: selectedModifiers.map((m) => ({ id: m.id, name: m.name, priceCents: m.price_cents })),
+      modifiers: selectedModifiers.map((m) => ({
+        id: m.id,
+        name: (m.quantity || 1) > 1 ? `${m.name} x${m.quantity}` : m.name,
+        priceCents: (m.price_cents || 0) * (m.quantity || 1),
+        quantity: m.quantity || 1,
+      })),
       notes: itemNote.trim(),
     })
   }
@@ -1044,21 +1404,28 @@ function ProductCustomizerModal({ product, orderType, onClose, onConfirm }) {
                 {group.modifiers?.map((m) => {
                   const isChecked = selectedModifiers.some((sm) => sm.id === m.id)
                   return (
-                    <button
+                    <div
                       key={m.id}
-                      type="button"
-                      onClick={() => handleToggleModifier(group, m)}
-                      className={`px-3 py-2 rounded-lg border text-xs flex justify-between items-center transition-all cursor-pointer ${
+                      className={`px-3 py-2 rounded-lg border text-xs flex justify-between items-center gap-2 ${
                         isChecked
                           ? 'bg-orange-950/70 border-orange-500 text-white font-semibold'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                          : 'bg-slate-950 border-slate-800 text-slate-300'
                       }`}
                     >
-                      <span>{m.name}</span>
-                      <span className="font-mono text-slate-400 text-[11px]">
-                        +${(m.price_cents / 100).toFixed(2)}
-                      </span>
-                    </button>
+                      <button type="button" onClick={() => handleToggleModifier(group, m)} className="flex-1 text-left">
+                        <span>{m.name}</span>
+                        <span className="font-mono text-slate-400 text-[11px] ml-2">
+                          +${(m.price_cents / 100).toFixed(2)}
+                        </span>
+                      </button>
+                      {isChecked && (
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => bumpModifierQty(m.id, -1)} className="w-5 h-5 rounded bg-slate-800">-</button>
+                          <span className="w-4 text-center">{selectedModifiers.find((sm) => sm.id === m.id)?.quantity || 1}</span>
+                          <button type="button" onClick={() => bumpModifierQty(m.id, 1)} className="w-5 h-5 rounded bg-slate-800">+</button>
+                        </div>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -1175,10 +1542,14 @@ function TablePickerModal({ selectedTable, onClose, onSelect }) {
               {currentFloor?.tables?.map((t) => {
                 const isSelected = selectedTable?.id === t.id
                 const isOccupied = t.status === 'OCCUPIED'
+                const isReserved = t.status === 'RESERVED' || Boolean(t.has_reservation)
+                const isCleaning = t.status === 'CLEANING'
+                const isOut = t.status === 'OUT_OF_SERVICE'
 
                 return (
                   <button
                     key={t.id}
+                    disabled={(isOccupied && selectedTable?.id !== t.id) || isOut}
                     onClick={() =>
                       onSelect({
                         id: t.id,
@@ -1191,7 +1562,13 @@ function TablePickerModal({ selectedTable, onClose, onSelect }) {
                       isSelected
                         ? 'bg-orange-950/70 border-orange-500 text-white shadow-lg'
                         : isOccupied
-                        ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
+                        ? 'bg-amber-950/30 border-amber-800/60 text-amber-200 opacity-70 cursor-not-allowed'
+                        : isReserved
+                        ? 'bg-indigo-950/40 border-indigo-800 text-indigo-200'
+                        : isCleaning
+                        ? 'bg-slate-800 border-slate-700 text-slate-400'
+                        : isOut
+                        ? 'bg-slate-950 border-slate-700 text-slate-500 opacity-60 cursor-not-allowed'
                         : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
@@ -1205,7 +1582,9 @@ function TablePickerModal({ selectedTable, onClose, onSelect }) {
                     </div>
                     <div className="mt-3 text-[11px] text-slate-400 flex justify-between items-center">
                       <span>Cap: {t.capacity}</span>
-                      <span className="capitalize text-[10px] font-semibold">{t.status.toLowerCase()}</span>
+                      <span className="capitalize text-[10px] font-semibold">
+                        {isOut ? 'out of service' : isReserved && t.status !== 'RESERVED' ? 'reserved' : t.status.toLowerCase()}
+                      </span>
                     </div>
                   </button>
                 )
@@ -1221,6 +1600,12 @@ function TablePickerModal({ selectedTable, onClose, onSelect }) {
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-400" /> Occupied
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-indigo-400" /> Reserved
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-slate-500" /> Out of service
             </span>
           </div>
           <button
@@ -1388,8 +1773,9 @@ function CustomerPickerModal({ selectedCustomer, onClose, onSelect }) {
 // ============================================================================
 // SUB-COMPONENT: ORDER DISCOUNT & PROMO COUPONS MODAL
 // ============================================================================
-function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, onClose, onApply }) {
-  const [tab, setTab] = useState('coupon') // 'coupon' | 'manual'
+function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, customer, loyaltySettings, cartItems = [], canManualDiscount = false, onClose, onApply }) {
+  const [tab, setTab] = useState('coupon') // 'coupon' | 'manual' | 'loyalty'
+  const [redeemPts, setRedeemPts] = useState('')
   const [couponCode, setCouponCode] = useState('')
   const [couponError, setCouponError] = useState(null)
   const [validCouponInfo, setValidCouponInfo] = useState(null)
@@ -1419,6 +1805,8 @@ function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, onC
         const res = await window.api.coupons.validate({
           code: couponCode.trim().toUpperCase(),
           orderTotalCents: subtotalCents,
+          customerId: customer?.id,
+          items: cartItems,
         })
         setValidCouponInfo(res)
       } else {
@@ -1434,13 +1822,19 @@ function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, onC
 
   const handleApplyCoupon = () => {
     if (validCouponInfo) {
-      onApply(validCouponInfo.discountCents, `Coupon: ${validCouponInfo.coupon.code} (${validCouponInfo.coupon.title})`)
+      onApply(
+        validCouponInfo.discountCents,
+        `Coupon: ${validCouponInfo.coupon.code} (${validCouponInfo.coupon.title})`,
+        { id: validCouponInfo.coupon.id, code: validCouponInfo.coupon.code },
+        'manual'
+      )
     }
   }
 
   const handleApplyManual = (e) => {
     e.preventDefault()
-    onApply(calculatedManualCents, reason)
+    if (!canManualDiscount) return
+    onApply(calculatedManualCents, reason, null, 'manual')
   }
 
   return (
@@ -1477,6 +1871,15 @@ function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, onC
           >
             <Percent className="w-3.5 h-3.5" />
             Manual Discount
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('loyalty')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              tab === 'loyalty' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Points
           </button>
         </div>
 
@@ -1551,6 +1954,53 @@ function DiscountModal({ subtotalCents, currentDiscountCents, currentReason, onC
               </button>
             </div>
           </div>
+        ) : tab === 'loyalty' ? (
+          <div className="space-y-3 text-xs">
+            {!customer ? (
+              <p className="text-slate-400">Select a customer first to redeem points.</p>
+            ) : (
+              <>
+                <p className="text-slate-300">
+                  {customer.name} has <strong className="text-emerald-400">{customer.loyalty_points || 0}</strong> pts.
+                  Min redeem {loyaltySettings?.loyaltyRedeemMin || 50}. Each point = ${((loyaltySettings?.loyaltyCentsPerPoint || 1) / 100).toFixed(2)}.
+                </p>
+                <input
+                  type="number"
+                  min={loyaltySettings?.loyaltyRedeemMin || 50}
+                  max={customer.loyalty_points || 0}
+                  value={redeemPts}
+                  onChange={(e) => setRedeemPts(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const pts = parseInt(redeemPts, 10)
+                    if (!pts) return
+                    try {
+                      await window.api.customers.adjustLoyalty({
+                        customerId: customer.id,
+                        pointsChanged: pts,
+                        transactionType: 'REDEEM',
+                        notes: 'POS redemption',
+                      })
+                      const cents = pts * (loyaltySettings?.loyaltyCentsPerPoint || 1)
+                      onApply(cents, `Loyalty redeem ${pts} pts`, null, 'loyalty')
+                    } catch (err) {
+                      setCouponError(err.message)
+                    }
+                  }}
+                  className="w-full py-2 rounded-lg bg-emerald-600 text-white font-bold"
+                >
+                  Redeem points
+                </button>
+              </>
+            )}
+          </div>
+        ) : !canManualDiscount ? (
+          <p className="text-xs text-amber-300 bg-amber-950/50 border border-amber-800 rounded-xl p-3">
+            Manual override discounts require the <strong>pos:apply_discount</strong> permission. You can still apply a coupon code or loyalty points.
+          </p>
         ) : (
           <form onSubmit={handleApplyManual} className="space-y-3">
             <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
@@ -1692,6 +2142,66 @@ function HeldOrdersDrawer({ heldOrders, onClose, onRecall }) {
               </div>
             ))
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ComboChoiceModal({ combo, groups, onClose, onConfirm }) {
+  const groupNames = Object.keys(groups || {})
+  const [picks, setPicks] = useState(() => {
+    const initial = {}
+    for (const name of groupNames) {
+      initial[name] = groups[name][0]?.id || ''
+    }
+    return initial
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div>
+            <h3 className="font-bold text-white text-base">{combo.name}</h3>
+            <p className="text-[11px] text-slate-400">Choose one option in each group</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {groupNames.map((name) => (
+          <div key={name} className="space-y-1.5">
+            <label className="text-xs font-bold text-amber-300 uppercase">{name}</label>
+            <select
+              value={picks[name] || ''}
+              onChange={(e) => setPicks((prev) => ({ ...prev, [name]: e.target.value }))}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+            >
+              {groups[name].map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.product_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+        <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+          <button type="button" onClick={onClose} className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const chosen = groupNames
+                .map((name) => groups[name].find((opt) => opt.id === picks[name]))
+                .filter(Boolean)
+              onConfirm(chosen)
+            }}
+            className="px-4 py-1.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-bold"
+          >
+            Add Combo
+          </button>
         </div>
       </div>
     </div>

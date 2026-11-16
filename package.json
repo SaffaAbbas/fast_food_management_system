@@ -1,7 +1,7 @@
 {
   "name": "restaurant-management",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,15 +16,17 @@
     "test:inventory": "electron test/inventory_recipes_test.js",
     "test:staff": "electron test/shifts_staff_test.js",
     "test:crm": "electron test/crm_reservations_test.js",
+    "test:promos": "electron test/promotions_test.js",
+    "test:audit": "electron test/audit_security_test.js",
     "test:delivery": "electron test/delivery_dispatch_test.js",
     "test:reports": "electron test/reports_settings_test.js",
-    "test:all": "npm run test:db && npm run test:auth && npm run test:catalog && npm run test:pos && npm run test:kitchen && npm run test:inventory && npm run test:staff && npm run test:crm && npm run test:delivery && npm run test:reports",
+    "test:all": "npm run test:db && npm run test:auth && npm run test:catalog && npm run test:pos && npm run test:kitchen && npm run test:inventory && npm run test:staff && npm run test:crm && npm run test:promos && npm run test:delivery && npm run test:reports && npm run test:audit",
     "seed:dummy": "electron electron/db/populate_all_dummy_data.js",
     "inspect:db": "electron test/inspect_current_db.js",
     "debug:order": "electron test/debug_create_order.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "preview": "vite preview",
-    "dist:win": "vite build && electron-builder --win nsis"
+    "dist:win": "node electron/sync/writeBundledConfig.js && vite build && electron-builder --win nsis"
   },
   "author": "Restaurant OS",
   "description": "Offline-first restaurant POS for Windows",
@@ -67,6 +69,12 @@
       "uninstallDisplayName": "Restaurant OS",
       "installerLanguages": ["en_US"]
     },
+    "extraResources": [
+      {
+        "from": "build/sync-config.json",
+        "to": "sync-config.json"
+      }
+    ],
     "extraMetadata": {
       "main": "dist-electron/main.js"
     }

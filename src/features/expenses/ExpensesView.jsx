@@ -33,6 +33,8 @@ export default function ExpensesView({ onBack }) {
     payee: '',
     description: '',
     expenseDate: new Date().toISOString().split('T')[0],
+    referenceNumber: '',
+    isRecurring: false,
   })
 
   // Toast
@@ -90,6 +92,8 @@ export default function ExpensesView({ onBack }) {
         payee: formData.payee.trim(),
         description: formData.description.trim(),
         expenseDate: formData.expenseDate,
+        referenceNumber: formData.referenceNumber,
+        isRecurring: formData.isRecurring,
       })
 
       showToast('success', `Expense of $${amt.toFixed(2)} recorded!`)
@@ -101,6 +105,8 @@ export default function ExpensesView({ onBack }) {
         payee: '',
         description: '',
         expenseDate: new Date().toISOString().split('T')[0],
+        referenceNumber: '',
+        isRecurring: false,
       })
       loadData()
     } catch (err) {
@@ -249,6 +255,7 @@ export default function ExpensesView({ onBack }) {
                 <th className="py-3 px-4">Description</th>
                 <th className="py-3 px-4">Payment Method</th>
                 <th className="py-3 px-4 text-right">Amount</th>
+                <th className="py-3 px-4"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -282,6 +289,33 @@ export default function ExpensesView({ onBack }) {
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-rose-400 text-sm">
                       ${(exp.amount_cents / 100).toFixed(2)}
+                      {exp.status && exp.status !== 'APPROVED' ? ` · ${exp.status}` : ''}
+                    </td>
+                    <td className="py-3 px-4 text-right space-x-1">
+                      {exp.status === 'PENDING' && (
+                        <button
+                          type="button"
+                          className="text-[10px] font-bold text-emerald-400"
+                          onClick={async () => {
+                            await window.api.expenses.approve(exp.id)
+                            loadData()
+                          }}
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {exp.status !== 'CANCELLED' && (
+                        <button
+                          type="button"
+                          className="text-[10px] font-bold text-rose-400"
+                          onClick={async () => {
+                            await window.api.expenses.cancel({ id: exp.id, reason: 'Cancelled from expenses' })
+                            loadData()
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -361,6 +395,25 @@ export default function ExpensesView({ onBack }) {
                     <option value="CARD">Corporate Card</option>
                   </select>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Reference / attachment</label>
+                  <input
+                    type="text"
+                    value={formData.referenceNumber}
+                    onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-300 pt-5">
+                  <input
+                    type="checkbox"
+                    checked={formData.isRecurring}
+                    onChange={(e) => setFormData({ ...formData, isRecurring: e.target.checked })}
+                  />
+                  Recurring expense
+                </label>
               </div>
 
               <div>

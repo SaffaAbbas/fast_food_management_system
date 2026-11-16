@@ -44,7 +44,7 @@ export function registerAuthAndDashboardHandlers() {
   })
 
   // Dashboard Metrics
-  ipcMain.handle('dashboard:get-metrics', async (_event, { branchId, rangeType } = {}) => {
+  ipcMain.handle('dashboard:get-metrics', async (_event, payload = {}) => {
     try {
       const session = authRepository.getCurrentSession()
       if (!session) throw new Error('Unauthorized: Please sign in.')
@@ -52,12 +52,23 @@ export function registerAuthAndDashboardHandlers() {
         throw new Error("Unauthorized: Requires 'dashboard:view' permission.")
       }
       const activeBranchId = session.roleCode === 'super_admin'
-        ? (branchId || session.branchId)
+        ? (payload.branchId || session.branchId)
         : session.branchId
-      return dashboardRepository.getMetrics(activeBranchId, rangeType || 'today')
+      return dashboardRepository.getMetrics(activeBranchId, payload.rangeType || 'today', payload)
     } catch (err) {
       console.error('[IPC dashboard:get-metrics] Error:', err.message)
       throw err
     }
+  })
+
+  ipcMain.handle('dashboard:list-branches', async () => {
+    const session = authRepository.getCurrentSession()
+    if (!session) throw new Error('Unauthorized: Please sign in.')
+    if (session.roleCode !== 'super_admin') {
+      return session.branchId
+        ? [{ id: session.branchId, name: session.branchName, code: null, currency_symbol: session.currencySymbol }]
+        : []
+    }
+    return dashboardRepository.listBranches()
   })
 }

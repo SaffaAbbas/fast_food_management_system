@@ -211,7 +211,7 @@ export default function ReservationsView({ onStartOrderForTable, onBack }) {
     if (!searchQuery) return true
     const q = searchQuery.toLowerCase()
     return (
-      r.guest_name.toLowerCase().includes(q) ||
+      (r.guest_name || r.customer_name || '').toLowerCase().includes(q) ||
       (r.guest_phone && r.guest_phone.includes(q)) ||
       (r.table_number && r.table_number.toLowerCase().includes(q))
     )
@@ -361,7 +361,7 @@ export default function ReservationsView({ onStartOrderForTable, onBack }) {
           </div>
 
           <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-            {['ALL', 'CONFIRMED', 'SEATED', 'CANCELLED', 'NO_SHOW'].map((st) => (
+            {['ALL', 'PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -526,7 +526,7 @@ export default function ReservationsView({ onStartOrderForTable, onBack }) {
                             <button
                               onClick={() => {
                                 const foundTbl = tables.find((t) => t.id === res.table_id)
-                                if (foundTbl) onStartOrderForTable(foundTbl)
+                                if (foundTbl) onStartOrderForTable({ ...foundTbl, reservationId: res.id, customerId: res.customer_id })
                               }}
                               className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-all cursor-pointer text-[11px]"
                             >

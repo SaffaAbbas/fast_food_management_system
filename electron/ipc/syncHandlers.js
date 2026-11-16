@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { requirePermission } from './authGuard.js'
 import { getSyncConfig, saveSyncConfig } from '../sync/config.js'
-import { getSyncStatus, runSyncCycle } from '../sync/engine.js'
+import { getSyncStatus, runSyncCycle, setNetworkHint } from '../sync/engine.js'
 
 export function registerSyncHandlers() {
   ipcMain.handle('sync:get-status', async () => getSyncStatus())
@@ -31,4 +31,6 @@ export function registerSyncHandlers() {
   })
 
   ipcMain.handle('sync:run-now', async () => runSyncCycle({ retryFailed: true }))
+
+  ipcMain.handle('sync:notify-network', async (_event, online) => setNetworkHint(Boolean(online)))
 }

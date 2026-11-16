@@ -66,7 +66,7 @@ export const customerRepository = {
     let sql = `
       SELECT id, branch_id, name, phone, email, address, tag,
              credit_balance_cents, loyalty_points, order_count, total_spent_cents,
-             notes, birth_date, is_active, created_at, updated_at
+             notes, birth_date, is_active, discount_percent, created_at, updated_at
       FROM customers
       WHERE (branch_id = ? OR branch_id IS NULL)
     `
@@ -109,7 +109,55 @@ export const customerRepository = {
       LIMIT 20
     `).all(id)
 
-    return { ...customer, recentOrders, loyaltyHistory }
+    const lastOrder = recentOrders[0] || null
+    const avgOrderValueCents = customer.order_count
+      ? Math.round((customer.total_spent_cents || 0) / customer.order_count)
+      : 0
+
+    const favouriteProducts = db.prepare(`
+      SELECT p.id, p.name, SUM(oi.quantity) as times_ordered
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN products p ON oi.product_id = p.id
+      WHERE o.customer_id = ? AND o.status NOT IN ('CANCELLED', 'DRAFT')
+      GROUP BY p.id, p.name
+      ORDER BY times_ordered DESC
+      LIMIT 5
+    `).all(id)
+
+    const favouriteCategories = db.prepare(`
+      SELECT c.id, c.name, SUM(oi.quantity) as times_ordered
+      FROM order_items oi
+      JOIN orders o ON oi.order_id = o.id
+      JOIN products p ON oi.product_id = p.id
+      JOIN categories c ON p.category_id = c.id
+      WHERE o.customer_id = ? AND o.status NOT IN ('CANCELLED', 'DRAFT')
+      GROUP BY c.id, c.name
+      ORDER BY times_ordered DESC
+      LIMIT 5
+    `).all(id)
+
+    let notifications = []
+    try {
+      notifications = db.prepare(`
+        SELECT * FROM customer_notifications
+        WHERE customer_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+      `).all(id)
+    } catch (e) {}
+
+    return {
+      ...customer,
+      recentOrders,
+      loyaltyHistory,
+      loyalty_transactions: loyaltyHistory,
+      last_order_at: lastOrder?.created_at || null,
+      avg_order_value_cents: avgOrderValueCents,
+      favouriteProducts,
+      favouriteCategories,
+      notifications,
+    }
   },
 
   createCustomer: ({ branchId, name, phone, email, address, tag = 'REGULAR', birthDate = null, notes = null, imageUrl = null }) => {
@@ -152,7 +200,7 @@ export const customerRepository = {
     return customerRepository.getCustomerById(id)
   },
 
-  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive, imageUrl }) => {
+  updateCustomer: (id, { name, phone, email, address, tag, birthDate, notes, isActive, imageUrl, discountPercent }) => {
     const db = getDb()
     const existing = db.prepare('SELECT * FROM customers WHERE id = ?').get(id)
     if (!existing) throw new Error('Customer not found.')
@@ -178,6 +226,7 @@ export const customerRepository = {
           notes = ?,
           image_url = ?,
           is_active = ?,
+          discount_percent = ?,
           updated_at = ?
       WHERE id = ?
     `).run(
@@ -190,6 +239,7 @@ export const customerRepository = {
       notes !== undefined ? (notes ? notes.trim() : null) : existing.notes,
       imageUrl !== undefined ? imageUrl : existing.image_url,
       isActive !== undefined ? (isActive ? 1 : 0) : existing.is_active,
+      discountPercent !== undefined ? Number(discountPercent) || 0 : (existing.discount_percent || 0),
       now,
       id
     )
@@ -211,7 +261,20 @@ export const customerRepository = {
       if (!customer) throw new Error('Customer not found.')
 
       const currentPoints = customer.loyalty_points || 0
-      const delta = parseInt(pointsChanged, 10) || 0
+      let delta = parseInt(pointsChanged, 10) || 0
+      if (String(transactionType).toUpperCase() === 'REDEEM' && delta > 0) {
+        delta = -delta
+      }
+      if (String(transactionType).toUpperCase() === 'REDEEM') {
+        const minRow = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'loyalty_redeem_min'").get()
+        const minPts = parseInt(minRow?.setting_value, 10) || 0
+        if (Math.abs(delta) < minPts) {
+          throw new Error(`Redeem at least ${minPts} loyalty points.`)
+        }
+        if (currentPoints < Math.abs(delta)) {
+          throw new Error('Not enough loyalty points to redeem.')
+        }
+      }
       const balanceAfter = Math.max(0, currentPoints + delta)
 
       const txId = uuid()
@@ -273,5 +336,91 @@ export const customerRepository = {
     `).get(validBranchId)
 
     return stats
+  },
+
+  logNotification: ({ customerId, orderId = null, channel = 'IN_APP', message }) => {
+    if (!customerId || !message) return null
+    const db = getDb()
+    const id = uuid()
+    const now = new Date().toISOString()
+    try {
+      db.prepare(`
+        INSERT INTO customer_notifications (id, customer_id, order_id, channel, message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, customerId, orderId, channel, message, now)
+    } catch (e) {
+      return null
+    }
+    return { id, customerId, message, created_at: now }
+  },
+
+  mergeCustomers: ({ keepId, absorbId }) => {
+    const db = getDb()
+    if (!keepId || !absorbId || keepId === absorbId) {
+      throw new Error('Select two different customer profiles to merge.')
+    }
+    const keep = db.prepare('SELECT * FROM customers WHERE id = ?').get(keepId)
+    const absorb = db.prepare('SELECT * FROM customers WHERE id = ?').get(absorbId)
+    if (!keep || !absorb) throw new Error('One of the customer profiles was not found.')
+
+    const now = new Date().toISOString()
+    const mergeTx = db.transaction(() => {
+      db.prepare('UPDATE orders SET customer_id = ? WHERE customer_id = ?').run(keepId, absorbId)
+      try {
+        db.prepare('UPDATE loyalty_transactions SET customer_id = ? WHERE customer_id = ?').run(keepId, absorbId)
+      } catch (e) {}
+      try {
+        db.prepare('UPDATE reservations SET customer_id = ? WHERE customer_id = ?').run(keepId, absorbId)
+      } catch (e) {}
+      try {
+        db.prepare('UPDATE deliveries SET customer_name = ?, customer_phone = ? WHERE customer_phone = ?').run(
+          keep.name,
+          keep.phone,
+          absorb.phone
+        )
+      } catch (e) {}
+      try {
+        db.prepare('UPDATE customer_notifications SET customer_id = ? WHERE customer_id = ?').run(keepId, absorbId)
+      } catch (e) {}
+      try {
+        db.prepare('UPDATE coupons SET customer_id = ? WHERE customer_id = ?').run(keepId, absorbId)
+      } catch (e) {}
+
+      db.prepare(`
+        UPDATE customers
+        SET loyalty_points = COALESCE(loyalty_points, 0) + ?,
+            total_spent_cents = COALESCE(total_spent_cents, 0) + ?,
+            order_count = COALESCE(order_count, 0) + ?,
+            credit_balance_cents = COALESCE(credit_balance_cents, 0) + ?,
+            notes = TRIM(COALESCE(notes, '') || char(10) || 'Merged profile: ' || ? || ' (' || COALESCE(?, '') || ')'),
+            address = COALESCE(NULLIF(address, ''), ?),
+            email = COALESCE(NULLIF(email, ''), ?),
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        absorb.loyalty_points || 0,
+        absorb.total_spent_cents || 0,
+        absorb.order_count || 0,
+        absorb.credit_balance_cents || 0,
+        absorb.name,
+        absorb.phone,
+        absorb.address,
+        absorb.email,
+        now,
+        keepId
+      )
+
+      db.prepare('UPDATE customers SET is_active = 0, phone = ?, updated_at = ? WHERE id = ?')
+        .run(`${absorb.phone || 'merged'}-merged-${Date.now().toString().slice(-4)}`, now, absorbId)
+
+      logAudit(keep.branch_id, 'MERGE_CUSTOMERS', 'CUSTOMER', keepId, {
+        absorbedId: absorbId,
+        absorbedName: absorb.name,
+        absorbedPhone: absorb.phone,
+      })
+      return customerRepository.getCustomerById(keepId)
+    })
+
+    return mergeTx()
   },
 }

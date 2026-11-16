@@ -196,30 +196,59 @@ export function initBrowserMockApi() {
     },
 
     dashboard: {
+      listBranches: async () => [{ id: 'br-1', name: 'Main Flagship Branch', currency_symbol: '$' }],
       getMetrics: async () => {
         const totalSales = orders.reduce((acc, o) => acc + (o.total_cents || 0), 0)
+        const hourly = Array.from({ length: 24 }, (_, hour) => ({
+          hour,
+          label: `${String(hour).padStart(2, '0')}:00`,
+          orderCount: hour >= 11 && hour <= 14 ? 2 : 0,
+          totalCents: hour >= 11 && hour <= 14 ? Math.round(totalSales / 4) : 0,
+        }))
+        const trend = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, i) => ({
+          day: label,
+          label,
+          orderCount: i + 1,
+          totalCents: (i + 1) * 1200,
+        }))
         return {
+          branch: { name: 'Main Flagship Branch', currency_symbol: '$' },
           sales: {
             grossSalesCents: totalSales,
             discountCents: 500,
-            taxCents: Math.round(totalSales * 0.0825),
+            taxCents: Math.round(totalSales * 0.05),
+            serviceChargeCents: 0,
+            deliveryChargeCents: 300,
+            refundCents: 0,
             netSalesCents: totalSales,
             totalOrders: orders.length,
             avgOrderCents: orders.length ? Math.round(totalSales / orders.length) : 0,
           },
-          salesByType: {
+          ordersByType: {
             DINE_IN: { count: 2, totalCents: 4866 },
             TAKEAWAY: { count: 0, totalCents: 0 },
             DELIVERY: { count: 2, totalCents: 6744 },
           },
-          paymentsByMethod: { CASH: 2703, CARD: 2163, ONLINE: 3797 },
-          kitchen: { pendingTickets: 0, preparingTickets: 2, readyTickets: 1, avgPrepMinutes: 12 },
-          tables: { totalTables: 8, occupiedTables: 2, availableTables: 5, occupancyRate: 25 },
+          paymentsByMethod: {
+            CASH: { totalCents: 2703, count: 2 },
+            CARD: { totalCents: 2163, count: 1 },
+            BANK_TRANSFER: { totalCents: 0, count: 0 },
+            WALLET: { totalCents: 3797, count: 2 },
+          },
+          kitchen: { pending: 2, delayed: 0, completed: 3, cancelled: 0 },
           topProducts: [
-            { id: '1', name: 'Classic Cheeseburger', quantitySold: 12, totalRevenueCents: 10788 },
-            { id: '2', name: 'Pepperoni Feast Pizza', quantitySold: 9, totalRevenueCents: 12591 },
-            { id: '3', name: 'Golden Crinkle Cut Fries', quantitySold: 15, totalRevenueCents: 5985 },
+            { id: '1', name: 'Classic Cheeseburger', total_quantity: 12, total_revenue_cents: 10788, category_name: 'Burgers' },
+            { id: '2', name: 'Pepperoni Feast Pizza', total_quantity: 9, total_revenue_cents: 12591, category_name: 'Pizza' },
           ],
+          topCategories: [
+            { id: 'c1', name: 'Burgers', total_quantity: 12, total_revenue_cents: 10788 },
+            { id: 'c2', name: 'Pizza', total_quantity: 9, total_revenue_cents: 12591 },
+          ],
+          lowStockItems: [],
+          stockAlerts: { low: 0, out: 0 },
+          expenses: { totalExpenseCents: 8000, estimatedNetProfitCents: totalSales - 8000 },
+          hourly,
+          trend,
         }
       },
     },
@@ -410,6 +439,15 @@ export function initBrowserMockApi() {
         setStorage('orders', orders)
         return true
       },
+      refundOrder: async ({ orderId, amountCents, reason, restock }) => {
+        orders = orders.map((o) =>
+          o.id === orderId
+            ? { ...o, refunded_cents: (o.refunded_cents || 0) + amountCents, status: 'REFUNDED', refund_reason: reason, restock }
+            : o
+        )
+        setStorage('orders', orders)
+        return orders.find((o) => o.id === orderId)
+      },
       getOrders: async ({ status, orderType, search } = {}) => {
         let res = orders
         if (status && status !== 'ALL') {
@@ -501,6 +539,26 @@ export function initBrowserMockApi() {
         setStorage('floors', floors)
         return true
       },
+      mergeTables: async ({ sourceTableId, targetTableId }) => {
+        floors = floors.map((f) => ({
+          ...f,
+          tables: f.tables.map((t) =>
+            t.id === sourceTableId ? { ...t, status: 'AVAILABLE', current_order_id: null } : t
+          ),
+        }))
+        setStorage('floors', floors)
+        return { sourceTableId, targetTableId }
+      },
+      splitBill: async ({ sourceTableId, targetTableId }) => {
+        floors = floors.map((f) => ({
+          ...f,
+          tables: f.tables.map((t) =>
+            t.id === targetTableId ? { ...t, status: 'OCCUPIED', current_order_id: `split-${Date.now()}` } : t
+          ),
+        }))
+        setStorage('floors', floors)
+        return { sourceTableId, targetTableId }
+      },
     },
 
     kitchen: {
@@ -552,10 +610,39 @@ export function initBrowserMockApi() {
         { id: 'u-1', name: 'Kilograms', abbreviation: 'kg' },
         { id: 'u-2', name: 'Grams', abbreviation: 'g' },
         { id: 'u-3', name: 'Liters', abbreviation: 'L' },
-        { id: 'u-4', name: 'Pieces', abbreviation: 'pcs' },
+        { id: 'u-4', name: 'Pieces', abbreviation: 'pc' },
+        { id: 'u-5', name: 'Millilitre', abbreviation: 'ml' },
+        { id: 'u-6', name: 'Pack', abbreviation: 'pack' },
+        { id: 'u-7', name: 'Box', abbreviation: 'box' },
       ],
       createUnit: async (data) => ({ id: `u-${Date.now()}`, ...data }),
-      getItems: async () => inventoryItems,
+      getItems: async (params = {}) => {
+        let rows = inventoryItems.map((i) => {
+          const reserved = i.reserved_stock || 0
+          const available = Math.max(0, (i.current_stock || 0) - reserved)
+          const reorder = i.reorder_level != null ? i.reorder_level : i.minimum_level
+          return {
+            ...i,
+            reserved_stock: reserved,
+            available_stock: available,
+            avg_cost_cents: i.avg_cost_cents ?? i.cost_per_unit_cents,
+            reorder_level: reorder,
+            isLowStock: available <= reorder,
+            isOutOfStock: available <= 0,
+            totalValueCents: Math.round((i.current_stock || 0) * ((i.avg_cost_cents ?? i.cost_per_unit_cents) || 0)),
+          }
+        })
+        if (params.lowStockOnly) rows = rows.filter((i) => i.isLowStock)
+        if (params.search) {
+          const q = params.search.toLowerCase()
+          rows = rows.filter((i) => i.name.toLowerCase().includes(q) || (i.sku || '').toLowerCase().includes(q))
+        }
+        return rows
+      },
+      getAlerts: async () =>
+        inventoryItems.filter((i) => (i.current_stock || 0) <= (i.reorder_level ?? i.minimum_level ?? 0)),
+      getBranches: async () => [DUMMY.INITIAL_BRANCH],
+      transferStock: async () => true,
       getItem: async (id) => inventoryItems.find((i) => i.id === id) || null,
       createItem: async (data) => {
         const newItem = { id: `inv-${Date.now()}`, ...data }
@@ -599,6 +686,8 @@ export function initBrowserMockApi() {
       ],
       getRecipe: async ({ productId }) => null,
       saveRecipe: async (data) => true,
+      setActive: async () => true,
+      getVersions: async () => [],
     },
 
     purchases: {
@@ -636,12 +725,15 @@ export function initBrowserMockApi() {
         return newPo
       },
       recordPayment: async (data) => true,
+      receiveOrder: async () => true,
+      returnItems: async () => true,
+      getVendorStatement: async () => ({ purchaseOrders: [], payments: [], returns: [], outstandingBalanceCents: 0 }),
     },
 
     expenses: {
       getCategories: async () => expenseCategories,
       getExpenses: async ({ categoryId }) => {
-        if (categoryId) {
+        if (categoryId && categoryId !== 'ALL') {
           return expenses.filter((e) => e.category_id === categoryId)
         }
         return expenses
@@ -663,13 +755,33 @@ export function initBrowserMockApi() {
         setStorage('expenses', expenses)
         return newExp
       },
+      create: async (data) => {
+        const cat = expenseCategories.find((c) => c.id === data.categoryId)
+        const newExp = {
+          id: `exp-${Date.now()}`,
+          category_id: data.categoryId,
+          category_name: cat?.name || 'Miscellaneous',
+          amount_cents: data.amountCents,
+          payment_method: data.paymentMethod,
+          payee: data.payee,
+          description: data.description,
+          expense_date: data.expenseDate || new Date().toISOString().slice(0, 10),
+          created_at: new Date().toISOString(),
+          status: 'APPROVED',
+        }
+        expenses = [newExp, ...expenses]
+        setStorage('expenses', expenses)
+        return newExp
+      },
+      approve: async () => true,
+      cancel: async () => true,
       getSummary: async () => {
         const total = expenses.reduce((acc, e) => acc + e.amount_cents, 0)
         return {
           totalCents: total,
           categoryBreakdown: expenseCategories.map((c) => ({
-            name: c.name,
-            totalCents: expenses.filter((e) => e.category_id === c.id).reduce((acc, e) => acc + e.amount_cents, 0),
+            category_name: c.name,
+            amount_cents: expenses.filter((e) => e.category_id === c.id).reduce((acc, e) => acc + e.amount_cents, 0),
           })),
         }
       },
@@ -864,7 +976,31 @@ export function initBrowserMockApi() {
     coupons: {
       getCoupons: async () => coupons,
       create: async (data) => {
-        const newCoupon = { id: `cpn-${Date.now()}`, ...data, is_active: 1 }
+        const newCoupon = {
+          id: `cpn-${Date.now()}`,
+          code: data.code,
+          title: data.title,
+          discount_type: data.discountType || data.discount_type,
+          discount_value: data.discountValue ?? data.discount_value,
+          min_order_cents: data.minOrderCents ?? data.min_order_cents ?? 0,
+          max_discount_cents: data.maxDiscountCents ?? data.max_discount_cents ?? null,
+          usage_limit: data.usageLimit ?? data.usage_limit ?? 0,
+          times_used: 0,
+          is_active: 1,
+          applies_to: data.appliesTo || data.applies_to || 'ALL',
+          target_id: data.targetId || data.target_id || null,
+          buy_qty: data.buyQty ?? data.buy_qty ?? 0,
+          get_qty: data.getQty ?? data.get_qty ?? 0,
+          get_product_id: data.getProductId || data.get_product_id || null,
+          start_date: data.startDate || data.start_date || null,
+          end_date: data.endDate || data.end_date || null,
+          start_time: data.startTime || data.start_time || null,
+          end_time: data.endTime || data.end_time || null,
+          customer_segment: data.customerSegment || data.customer_segment || 'ALL',
+          is_auto_apply: data.isAutoApply || data.is_auto_apply ? 1 : 0,
+          per_customer_limit: data.perCustomerLimit ?? data.per_customer_limit ?? 0,
+          customer_id: data.customerId || data.customer_id || null,
+        }
         coupons = [...coupons, newCoupon]
         setStorage('coupons', coupons)
         return newCoupon
@@ -874,21 +1010,45 @@ export function initBrowserMockApi() {
         setStorage('coupons', coupons)
         return true
       },
-      validate: async ({ code, orderSubtotalCents }) => {
-        const found = coupons.find((c) => c.code.toUpperCase() === code?.toUpperCase())
+      validate: async ({ code, orderSubtotalCents, orderTotalCents, items = [], customerId }) => {
+        const total = orderSubtotalCents ?? orderTotalCents ?? 0
+        const found = coupons.find((c) => String(c.code || c.code).toUpperCase() === code?.toUpperCase())
         if (!found) throw new Error('Invalid coupon code.')
-        if (found.min_order_cents && orderSubtotalCents < found.min_order_cents) {
-          throw new Error(`Minimum order of $${(found.min_order_cents / 100).toFixed(2)} required.`)
+        const min = found.min_order_cents || found.minOrderCents || 0
+        if (min && total < min) {
+          throw new Error(`Coupon "${found.code}" requires a minimum spend of $${(min / 100).toFixed(2)}.`)
         }
-        const discount =
-          found.discount_type === 'PERCENTAGE'
-            ? Math.round((orderSubtotalCents * found.discount_value) / 100)
-            : found.discount_value
+        const type = found.discount_type || found.discountType
+        let discount =
+          type === 'PERCENTAGE'
+            ? Math.round((total * (found.discount_value || found.discountValue || 0)) / 100)
+            : (found.discount_value || found.discountValue || 0)
+        if (type === 'BOGO' && items.length) {
+          const buyQty = found.buy_qty || found.buyQty || 2
+          const getQty = found.get_qty || found.getQty || 1
+          const buyId = found.target_id || found.targetId
+          const buyCount = items.filter((it) => it.productId === buyId).reduce((s, it) => s + (it.quantity || 0), 0)
+          const free = Math.floor(buyCount / buyQty) * getQty
+          const unit = items.find((it) => it.productId === buyId)?.unitPriceCents || 0
+          discount = free * unit
+        }
+        const cap = found.max_discount_cents || found.maxDiscountCents
         return {
           valid: true,
           coupon: found,
-          discountCents: found.max_discount_cents ? Math.min(discount, found.max_discount_cents) : discount,
+          discountType: type,
+          discountCents: cap ? Math.min(discount, cap) : discount,
         }
+      },
+      evaluateAuto: async ({ orderTotalCents = 0 }) => {
+        const found = coupons.find((c) => c.is_auto_apply || c.isAutoApply)
+        if (!found) return null
+        const type = found.discount_type || found.discountType
+        const discount =
+          type === 'PERCENTAGE'
+            ? Math.round((orderTotalCents * (found.discount_value || found.discountValue || 0)) / 100)
+            : (found.discount_value || found.discountValue || 0)
+        return { valid: true, code: found.code, title: found.title, discountCents: discount, coupon: found }
       },
     },
 
@@ -1127,14 +1287,20 @@ export function initBrowserMockApi() {
         { id: 'aud-1', action: 'CREATE_ORDER', entity_type: 'ORDER', entity_id: 'ord-kds-01', created_at: new Date().toISOString() },
         { id: 'aud-2', action: 'CLOCK_IN', entity_type: 'STAFF', entity_id: 'emp-01', created_at: new Date().toISOString() },
       ],
-      getStaffSales: async () => [],
+      getStaffSales: async () => ({ sales: [], attendance: [] }),
       getCustomerReport: async () => [],
       getKitchenReport: async () => ({ byStatus: [], avgPrepMinutes: 0 }),
-      getDeliveryReport: async () => ({ riders: [] }),
-      getInventoryReport: async () => ({ items: [], totalValuationCents: 0, lowStockCount: 0 }),
+      getDeliveryReport: async () => ({ riders: [], byStatus: [] }),
+      getInventoryReport: async () => ({ items: [], movement: [], totalValuationCents: 0, lowStockCount: 0 }),
       getExpenseReport: async () => [],
       getReservationReport: async () => [],
       getRefundReport: async () => [],
+      getFoodCost: async () => ({ items: [] }),
+      getPurchaseReport: async () => ({ items: [], totalCents: 0 }),
+      getVendorStatement: async () => ({ vendors: [] }),
+      getCashierReport: async () => ({ cashiers: [], sessions: [] }),
+      getBranchComparison: async () => ({ rows: [] }),
+      getLookups: async () => ({ branches: [], cashiers: [], suppliers: [], categories: [] }),
     },
 
     media: {
@@ -1165,6 +1331,11 @@ export function initBrowserMockApi() {
         throw new Error('Cloud sync is only available in the desktop POS.')
       },
       runNow: async () => ({ online: navigator.onLine, pending: 0, message: 'Desktop app required.' }),
+      notifyNetwork: async (online) => ({
+        online: Boolean(online),
+        pending: 0,
+        message: 'Browser demo does not sync to Supabase.',
+      }),
     },
 
     settings: {

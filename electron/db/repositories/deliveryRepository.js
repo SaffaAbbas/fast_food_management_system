@@ -1,8 +1,39 @@
 import crypto from 'node:crypto'
 import { getDb } from '../index.js'
+import { customerRepository } from './customerRepository.js'
 
 function uuid() {
   return crypto.randomUUID()
+}
+
+function notifyEnabled(db) {
+  try {
+    const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'notify_customer_on_status'").get()
+    return row?.setting_value !== '0'
+  } catch {
+    return true
+  }
+}
+
+function notifyDeliveryCustomer(delivery, message) {
+  if (!delivery) return
+  const db = getDb()
+  if (!notifyEnabled(db)) return
+  let customerId = null
+  try {
+    const order = db.prepare('SELECT customer_id FROM orders WHERE id = ?').get(delivery.order_id)
+    customerId = order?.customer_id || null
+    if (!customerId && delivery.customer_phone) {
+      customerId = db.prepare('SELECT id FROM customers WHERE phone = ?').get(delivery.customer_phone)?.id || null
+    }
+  } catch (e) {}
+  if (!customerId) return
+  customerRepository.logNotification({
+    customerId,
+    orderId: delivery.order_id,
+    channel: 'IN_APP',
+    message,
+  })
 }
 
 export const deliveryRepository = {
@@ -241,6 +272,14 @@ export const deliveryRepository = {
       params.push(filters.riderId)
     }
 
+    if (filters.assignedToUserId || filters.assignedToName) {
+      query += ` AND (
+        EXISTS (SELECT 1 FROM riders rx WHERE rx.id = d.rider_id AND rx.user_id = ?)
+        OR LOWER(COALESCE(r.name, '')) = LOWER(?)
+      )`
+      params.push(filters.assignedToUserId || '', filters.assignedToName || '')
+    }
+
     if (filters.date) {
       query += ' AND d.created_at LIKE ?'
       params.push(`${filters.date}%`)
@@ -279,9 +318,18 @@ export const deliveryRepository = {
     const id = uuid()
     const now = new Date().toISOString()
 
-    // Retrieve order
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(data.orderId)
     if (!order) throw new Error(`Order not found: ${data.orderId}`)
+
+    if (data.zoneId) {
+      const zone = db.prepare('SELECT * FROM delivery_zones WHERE id = ?').get(data.zoneId)
+      if (zone && zone.is_active === 0) throw new Error(`Delivery zone "${zone.name}" is inactive.`)
+      if (zone && (zone.min_order_cents || 0) > (order.total_cents || 0)) {
+        throw new Error(
+          `Minimum order for ${zone.name} is $${((zone.min_order_cents || 0) / 100).toFixed(2)}.`
+        )
+      }
+    }
 
     // Compute COD balance (unpaid balance)
     const codAmountCents = data.codAmountCents !== undefined
@@ -345,7 +393,9 @@ export const deliveryRepository = {
     })
 
     assignTx()
-    return this.getDeliveryById(deliveryId)
+    const assigned = this.getDeliveryById(deliveryId)
+    notifyDeliveryCustomer(assigned, `Rider ${assigned.rider_name || ''} assigned to your order ${assigned.order_number}.`)
+    return assigned
   },
 
   dispatchDelivery(deliveryId) {
@@ -380,7 +430,9 @@ export const deliveryRepository = {
     })
 
     dispatchTx()
-    return this.getDeliveryById(deliveryId)
+    const dispatched = this.getDeliveryById(deliveryId)
+    notifyDeliveryCustomer(dispatched, `Order ${dispatched.order_number} is out for delivery.`)
+    return dispatched
   },
 
   completeDelivery(deliveryId, { codCollectedCents = null } = {}) {
@@ -425,7 +477,9 @@ export const deliveryRepository = {
     })
 
     completeTx()
-    return this.getDeliveryById(deliveryId)
+    const completed = this.getDeliveryById(deliveryId)
+    notifyDeliveryCustomer(completed, `Order ${completed.order_number} was delivered.`)
+    return completed
   },
 
   failDelivery(deliveryId, reason) {
@@ -452,7 +506,9 @@ export const deliveryRepository = {
     })
 
     failTx()
-    return this.getDeliveryById(deliveryId)
+    const failed = this.getDeliveryById(deliveryId)
+    notifyDeliveryCustomer(failed, `Delivery of ${failed.order_number} failed: ${reason || 'unsuccessful'}.`)
+    return failed
   },
 
   // =========================================================================

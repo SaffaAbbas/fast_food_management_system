@@ -1,6 +1,20 @@
 import crypto from 'node:crypto'
 import { getDb } from './index.js'
 
+let flushHook = null
+
+export function setOutboxFlushHook(fn) {
+  flushHook = typeof fn === 'function' ? fn : null
+}
+
+function requestFlush() {
+  try {
+    flushHook?.()
+  } catch {
+    /* sync engine optional during tests */
+  }
+}
+
 /**
  * Durable local outbox. POS writes here immediately; the sync engine
  * pushes PENDING rows to Supabase when the network is available.
@@ -47,6 +61,7 @@ export function enqueueOutbox(entityType, entityId, operation, payload = {}) {
       JSON.stringify(payload),
       now
     )
+    requestFlush()
   } catch (err) {
     console.warn('[Outbox] Could not enqueue:', err.message)
   }

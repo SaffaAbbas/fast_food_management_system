@@ -47,9 +47,34 @@ export const tableRepository = {
       SELECT t.id, t.floor_id, t.table_number, t.capacity, t.status, t.current_order_id, t.is_active,
              o.order_number as current_order_number,
              o.total_cents as current_order_total_cents,
+             o.paid_cents as current_order_paid_cents,
              o.order_type as current_order_type,
              o.created_at as current_order_created_at,
-             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as current_order_item_count
+             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as current_order_item_count,
+             (SELECT r.customer_name FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_guest,
+             (SELECT r.reservation_time FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_time,
+             (SELECT r.party_size FROM reservations r
+               WHERE r.table_id = t.id
+                 AND r.status IN ('PENDING', 'CONFIRMED')
+                 AND (
+                   r.reservation_date = date('now', 'localtime')
+                   OR (r.reservation_date IS NULL AND date(r.reservation_time) = date('now', 'localtime'))
+                 )
+               ORDER BY r.reservation_time ASC LIMIT 1) as reservation_party_size
       FROM dining_tables t
       LEFT JOIN orders o ON t.current_order_id = o.id AND o.status != 'COMPLETED' AND o.status != 'CANCELLED'
       WHERE (t.branch_id = ? OR t.branch_id IS NULL) AND t.is_active = 1
@@ -63,9 +88,11 @@ export const tableRepository = {
       if (t.current_order_created_at) {
         occupancyMinutes = Math.max(0, Math.floor((now - new Date(t.current_order_created_at).getTime()) / 60000))
       }
+      const hasReservation = Boolean(t.reservation_guest)
       const enrichedTable = {
         ...t,
         occupancyMinutes,
+        has_reservation: hasReservation ? 1 : 0,
       }
       if (!tableMap[t.floor_id]) tableMap[t.floor_id] = []
       tableMap[t.floor_id].push(enrichedTable)
@@ -296,5 +323,149 @@ export const tableRepository = {
     })
 
     return mergeTx()
+  },
+
+  splitBill: ({ sourceTableId, targetTableId, itemIds, reason = 'Split bill' }) => {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const moveIds = Array.isArray(itemIds) ? itemIds.filter(Boolean) : []
+    if (moveIds.length === 0) throw new Error('Select at least one item to move onto the new bill.')
+
+    const splitTx = db.transaction(() => {
+      const source = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(sourceTableId)
+      const target = db.prepare('SELECT * FROM dining_tables WHERE id = ?').get(targetTableId)
+      if (!source || !target) throw new Error('Source or target table was not found.')
+      if (!source.current_order_id) throw new Error(`Table ${source.table_number} has no active bill to split.`)
+      if (target.status === 'OCCUPIED' && target.current_order_id) {
+        throw new Error(`Target table ${target.table_number} is already occupied.`)
+      }
+      if (target.status === 'OUT_OF_SERVICE') {
+        throw new Error(`Target table ${target.table_number} is out of service.`)
+      }
+
+      const sourceOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(source.current_order_id)
+      if (!sourceOrder) throw new Error('Source order could not be loaded.')
+      if (['COMPLETED', 'CANCELLED', 'REFUNDED'].includes(sourceOrder.status)) {
+        throw new Error('Cannot split a completed, cancelled, or refunded bill.')
+      }
+      if ((sourceOrder.paid_cents || 0) > 0 && (sourceOrder.paid_cents || 0) >= (sourceOrder.total_cents || 0)) {
+        throw new Error('Cannot split a fully paid bill.')
+      }
+
+      const allItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(sourceOrder.id)
+      if (allItems.length <= 1) throw new Error('Need at least two items on the bill to split.')
+      const moveSet = new Set(moveIds)
+      const moving = allItems.filter((it) => moveSet.has(it.id))
+      const remaining = allItems.filter((it) => !moveSet.has(it.id))
+      if (moving.length === 0) throw new Error('None of the selected items belong to this bill.')
+      if (remaining.length === 0) throw new Error('Leave at least one item on the original table.')
+
+      const origSub = Math.max(1, sourceOrder.subtotal_cents || 0)
+      const movedSub = moving.reduce((sum, it) => sum + (it.total_cents || 0), 0)
+      const remainSub = remaining.reduce((sum, it) => sum + (it.total_cents || 0), 0)
+      const ratio = movedSub / origSub
+
+      const movedDiscount = Math.round((sourceOrder.discount_cents || 0) * ratio)
+      const movedTax = Math.round((sourceOrder.tax_cents || 0) * ratio)
+      const movedService = Math.round((sourceOrder.service_charge_cents || 0) * ratio)
+      const movedTotal = Math.max(0, movedSub - movedDiscount + movedTax + movedService)
+
+      const newOrderId = uuid()
+      const newOrderNumber = `ORD-${Date.now().toString().slice(-6)}`
+
+      db.prepare(`
+        INSERT INTO orders (
+          id, branch_id, order_number, order_type, order_source, status,
+          table_id, customer_id, cashier_id, subtotal_cents, discount_cents,
+          discount_reason, tax_cents, service_charge_cents, delivery_charge_cents,
+          total_cents, paid_cents, notes, kitchen_accepted_at, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?
+        )
+      `).run(
+        newOrderId,
+        sourceOrder.branch_id,
+        newOrderNumber,
+        sourceOrder.order_type || 'DINE_IN',
+        sourceOrder.order_source || 'POS',
+        sourceOrder.status === 'DRAFT' ? 'DRAFT' : 'CONFIRMED',
+        targetTableId,
+        sourceOrder.customer_id,
+        sourceOrder.cashier_id,
+        movedSub,
+        movedDiscount,
+        sourceOrder.discount_reason || null,
+        movedTax,
+        movedService,
+        0,
+        movedTotal,
+        0,
+        `Split from ${sourceOrder.order_number} (${source.table_number}). ${reason}`,
+        sourceOrder.status === 'DRAFT' ? null : now,
+        now,
+        now
+      )
+
+      for (const item of moving) {
+        db.prepare('UPDATE order_items SET order_id = ? WHERE id = ?').run(newOrderId, item.id)
+      }
+
+      const remainDiscount = Math.max(0, (sourceOrder.discount_cents || 0) - movedDiscount)
+      const remainTax = Math.max(0, (sourceOrder.tax_cents || 0) - movedTax)
+      const remainService = Math.max(0, (sourceOrder.service_charge_cents || 0) - movedService)
+      const remainTotal = Math.max(0, remainSub - remainDiscount + remainTax + remainService + (sourceOrder.delivery_charge_cents || 0))
+
+      db.prepare(`
+        UPDATE orders
+        SET subtotal_cents = ?,
+            discount_cents = ?,
+            tax_cents = ?,
+            service_charge_cents = ?,
+            total_cents = ?,
+            notes = TRIM(COALESCE(notes, '') || char(10) || 'Split items to ' || ? || ' (' || ? || ')'),
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        remainSub,
+        remainDiscount,
+        remainTax,
+        remainService,
+        remainTotal,
+        target.table_number,
+        newOrderNumber,
+        now,
+        sourceOrder.id
+      )
+
+      db.prepare(`
+        INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+        VALUES (?, ?, NULL, ?, NULL, ?, ?)
+      `).run(uuid(), newOrderId, sourceOrder.status === 'DRAFT' ? 'DRAFT' : 'CONFIRMED', `Split from ${sourceOrder.order_number}. ${reason}`, now)
+
+      db.prepare("UPDATE dining_tables SET status = 'OCCUPIED', current_order_id = ?, updated_at = ? WHERE id = ?")
+        .run(newOrderId, now, targetTableId)
+
+      logAudit(source.branch_id, 'SPLIT_BILL', 'TABLE', sourceOrder.id, {
+        sourceTable: source.table_number,
+        targetTable: target.table_number,
+        sourceOrder: sourceOrder.order_number,
+        newOrder: newOrderNumber,
+        movedItems: moving.length,
+        reason,
+      })
+
+      return {
+        sourceOrderId: sourceOrder.id,
+        newOrderId,
+        newOrderNumber,
+        sourceTableNumber: source.table_number,
+        targetTableNumber: target.table_number,
+      }
+    })
+
+    return splitTx()
   },
 }

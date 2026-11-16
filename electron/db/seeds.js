@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 
 import { hashSecret } from './repositories/authRepository.js'
+import { applyRoleMatrix } from './rbac.js'
 
 function uuid() {
   return crypto.randomUUID()
@@ -43,115 +44,7 @@ export function seedDatabase(db, options = {}) {
       branchId = db.prepare('SELECT id FROM branches LIMIT 1').get().id
     }
 
-    // 2. Default Roles
-    const roles = [
-      { code: 'super_admin', name: 'Super Administrator', desc: 'Full system and branch access', is_system: 1 },
-      { code: 'branch_admin', name: 'Branch Admin / Owner', desc: 'Full branch management without global system locks', is_system: 1 },
-      { code: 'manager', name: 'Restaurant Manager', desc: 'Orders, inventory, staff, discounts and reports', is_system: 1 },
-      { code: 'cashier', name: 'Cashier', desc: 'POS order entry, payments and receipts', is_system: 1 },
-      { code: 'waiter', name: 'Waiter', desc: 'Dine-in table orders and customer service', is_system: 1 },
-      { code: 'kitchen_staff', name: 'Kitchen Staff', desc: 'Kitchen display screen and order preparation', is_system: 1 },
-      { code: 'inventory_officer', name: 'Inventory Officer', desc: 'Stock movements, purchases and ingredients', is_system: 1 },
-      { code: 'accountant', name: 'Accountant', desc: 'Expenses, settlements and financial reports', is_system: 1 },
-      { code: 'delivery_rider', name: 'Delivery Rider', desc: 'Assigned deliveries and rider status updates', is_system: 1 },
-      { code: 'receptionist', name: 'Reception / Reservation', desc: 'Reservations, customers and table coordination', is_system: 1 },
-    ]
-
-    const roleMap = {}
-    for (const r of roles) {
-      let existing = db.prepare('SELECT id FROM roles WHERE code = ?').get(r.code)
-      if (!existing) {
-        const id = uuid()
-        db.prepare('INSERT INTO roles (id, code, name, description, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(id, r.code, r.name, r.desc, r.is_system, new Date().toISOString())
-        roleMap[r.code] = id
-      } else {
-        roleMap[r.code] = existing.id
-      }
-    }
-
-    // 3. Permissions
-    const permissions = [
-      { code: 'dashboard:view', name: 'View Dashboard Metrics', module: 'DASHBOARD' },
-      { code: 'pos:create_order', name: 'Create Orders', module: 'POS' },
-      { code: 'pos:apply_discount', name: 'Apply Discount', module: 'POS' },
-      { code: 'pos:process_refund', name: 'Process Refund', module: 'POS' },
-      { code: 'menu:manage', name: 'Manage Products & Menu', module: 'MENU' },
-      { code: 'inventory:manage', name: 'Manage Inventory & Stock', module: 'INVENTORY' },
-      { code: 'reports:view', name: 'View Reports & Analytics', module: 'REPORTS' },
-      { code: 'staff:manage', name: 'Manage Staff & Roles', module: 'STAFF' },
-      { code: 'settings:manage', name: 'Manage System Settings', module: 'SETTINGS' },
-      { code: 'kitchen:view', name: 'Access Kitchen Display (KDS)', module: 'KITCHEN' },
-      { code: 'reservations:manage', name: 'Manage Reservations', module: 'RESERVATIONS' },
-      { code: 'delivery:manage', name: 'Manage Delivery & Riders', module: 'DELIVERY' },
-      { code: 'expenses:manage', name: 'Manage Expenses', module: 'EXPENSES' },
-      { code: 'cash:manage', name: 'Manage Cash Drawer', module: 'CASH' },
-    ]
-
-    for (const p of permissions) {
-      let existing = db.prepare('SELECT id FROM permissions WHERE code = ?').get(p.code)
-      let permId = existing?.id
-      if (!existing) {
-        permId = uuid()
-        db.prepare('INSERT INTO permissions (id, code, name, module, description) VALUES (?, ?, ?, ?, ?)')
-          .run(permId, p.code, p.name, p.module, p.name)
-      }
-
-      // Link super_admin to all permissions
-      if (roleMap.super_admin && permId) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.super_admin, permId)
-      }
-
-      if (roleMap.branch_admin && permId && p.code !== 'settings:manage') {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.branch_admin, permId)
-      }
-
-      // Link manager
-      if (roleMap.manager && permId && p.code !== 'settings:manage') {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.manager, permId)
-      }
-
-      // Link cashier
-      if (roleMap.cashier && permId && ['dashboard:view', 'pos:create_order', 'pos:apply_discount', 'cash:manage', 'delivery:manage'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.cashier, permId)
-      }
-
-      // Link waiter
-      if (roleMap.waiter && permId && ['pos:create_order', 'reservations:manage'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.waiter, permId)
-      }
-
-      // Link kitchen
-      if (roleMap.kitchen_staff && permId && ['kitchen:view'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.kitchen_staff, permId)
-      }
-
-      if (roleMap.inventory_officer && permId && ['inventory:manage', 'dashboard:view'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.inventory_officer, permId)
-      }
-
-      if (roleMap.accountant && permId && ['reports:view', 'dashboard:view', 'expenses:manage'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.accountant, permId)
-      }
-
-      if (roleMap.delivery_rider && permId && ['delivery:manage'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.delivery_rider, permId)
-      }
-
-      if (roleMap.receptionist && permId && ['pos:create_order', 'dashboard:view', 'reservations:manage'].includes(p.code)) {
-        db.prepare('INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)')
-          .run(roleMap.receptionist, permId)
-      }
-    }
+    const { roleIds: roleMap } = applyRoleMatrix(db)
 
     // 4. Optional demo staff — production first-run uses the setup wizard instead
     const staffUsers = includeDemoUsers ? [
@@ -319,12 +212,20 @@ export function seedDatabase(db, options = {}) {
     } catch (e) {}
 
     // 8. Inventory Units
-    const unitCount = db.prepare('SELECT COUNT(*) as count FROM inventory_units').get().count
-    if (unitCount === 0) {
-      db.prepare('INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)').run(uuid(), 'Kilogram', 'kg')
-      db.prepare('INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)').run(uuid(), 'Gram', 'g')
-      db.prepare('INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)').run(uuid(), 'Piece', 'pc')
-      db.prepare('INSERT INTO inventory_units (id, name, abbreviation) VALUES (?, ?, ?)').run(uuid(), 'Liter', 'L')
+    const defaultUnits = [
+      ['Kilogram', 'kg'],
+      ['Gram', 'g'],
+      ['Piece', 'pc'],
+      ['Liter', 'L'],
+      ['Millilitre', 'ml'],
+      ['Pack', 'pack'],
+      ['Box', 'box'],
+    ]
+    const insertMissingUnit = db.prepare(
+      'INSERT INTO inventory_units (id, name, abbreviation) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM inventory_units WHERE abbreviation = ?)'
+    )
+    for (const [name, abbr] of defaultUnits) {
+      insertMissingUnit.run(uuid(), name, abbr, abbr)
     }
 
     // 8.1 Suppliers Seeds (Phase 7)

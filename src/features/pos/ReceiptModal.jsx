@@ -9,8 +9,9 @@ export default function ReceiptModal({ order, branchSettings, onClose, onNewOrde
   }
 
   const businessName = branchSettings?.business_name || 'FastBite Gourmet Grill'
-  const receiptHeader = branchSettings?.receipt_header || 'FastBite Gourmet Grill\n100 Gourmet Plaza, Suite 4\nTel: +1 555-0199'
-  const receiptFooter = branchSettings?.receipt_footer || 'Thank you for dining with us!\nVisit again soon.'
+  const receiptHeader = branchSettings?.receipt_header_msg || branchSettings?.receipt_header || 'FastBite Gourmet Grill\n100 Gourmet Plaza, Suite 4\nTel: +1 555-0199'
+  const receiptFooter = branchSettings?.receipt_footer_msg || branchSettings?.receipt_footer || 'Thank you for dining with us!\nVisit again soon.'
+  const logoUrl = branchSettings?.logo_url || branchSettings?.branch_logo_url
 
   const formattedDate = new Date(order.created_at || Date.now()).toLocaleString()
 
@@ -36,6 +37,7 @@ export default function ReceiptModal({ order, branchSettings, onClose, onNewOrde
           >
             {/* Header */}
             <div className="text-center border-b border-dashed border-slate-400 pb-3 mb-3">
+              {logoUrl ? <img src={logoUrl} alt="" className="h-10 mx-auto mb-2 object-contain" /> : null}
               <h2 className="font-black text-sm uppercase tracking-wide text-black">{businessName}</h2>
               <div className="whitespace-pre-line text-[10px] text-slate-600 mt-1">{receiptHeader}</div>
             </div>
@@ -72,7 +74,7 @@ export default function ReceiptModal({ order, branchSettings, onClose, onNewOrde
             <div className="border-b border-dashed border-slate-400 pb-2.5 mb-2.5 space-y-2">
               <div className="flex justify-between text-[9px] uppercase font-bold text-slate-500 border-b border-slate-200 pb-1">
                 <span>Item</span>
-                <span className="text-right">Total</span>
+                <span className="text-right">Qty · Price · Total</span>
               </div>
 
               {order.items?.map((item, idx) => (
@@ -83,7 +85,7 @@ export default function ReceiptModal({ order, branchSettings, onClose, onNewOrde
                       {item.variation_name ? ` (${item.variation_name})` : ''}
                     </span>
                     <span className="font-bold shrink-0">
-                      ${(item.total_cents / 100).toFixed(2)}
+                      {item.quantity} × ${((item.unit_price_cents || 0) / 100).toFixed(2)} = ${(item.total_cents / 100).toFixed(2)}
                     </span>
                   </div>
 
@@ -191,7 +193,17 @@ export default function ReceiptModal({ order, branchSettings, onClose, onNewOrde
             onClick={handlePrint}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold shadow-lg shadow-orange-950 transition-all cursor-pointer"
           >
-            <Printer className="w-4 h-4" /> Print Thermal Ticket
+            <Printer className="w-4 h-4" /> Print 80mm
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const text = `Invoice ${order.order_number}\n${businessName}\nTotal $${((order.total_cents || 0) / 100).toFixed(2)}`
+              if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text)
+            }}
+            className="px-3 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-semibold"
+          >
+            Copy / share
           </button>
           {onNewOrder && (
             <button

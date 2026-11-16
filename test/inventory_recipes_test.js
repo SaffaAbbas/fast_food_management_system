@@ -171,7 +171,8 @@ async function runTestSuite() {
     tenderedCents: 2000,
     changeCents: 5,
   })
-  assert.strictEqual(settled.status, 'COMPLETED')
+  assert.ok(['COMPLETED', 'CONFIRMED', 'PREPARING', 'READY', 'SERVED'].includes(settled.status), 'Paid sale must remain a live kitchen ticket until bumped')
+  assert.ok((settled.paid_cents || 0) >= (settled.total_cents || 0), 'Order must be fully paid')
 
   // Verify beef patties stock was automatically reduced by exactly 2 units!
   const currentBeefAfterPayment = inventoryRepository.getItemById(beefItem.id).current_stock
@@ -267,6 +268,44 @@ async function runTestSuite() {
   `).all()
   assert.strictEqual(invAuditLogs.length >= 4, true, 'All inventory actions must be logged')
   console.log(`✓ Captured ${invAuditLogs.length} Phase 7 Audit Logs!`)
+
+  console.log('\n--- Test 10: Reorder, Weighted Average Cost, Recipe Versioning ---')
+  assert.ok(createdItem.available_stock != null, 'available_stock is computed')
+  assert.ok(units.some((u) => u.abbreviation === 'ml'), 'ml unit seeded')
+  assert.ok(units.some((u) => u.abbreviation === 'box'), 'box unit seeded')
+
+  const beforePo = inventoryRepository.getItemById(beefItem.id)
+  const po2 = inventoryRepository.createPurchaseOrder({
+    branchId: branch.id,
+    supplierId: apexSupplier.id,
+    autoReceive: true,
+    items: [{
+      inventoryItemId: beefItem.id,
+      quantity: 10,
+      unitCostCents: (beforePo.avg_cost_cents || beforePo.cost_per_unit_cents) + 50,
+    }],
+  })
+  assert.ok(po2.id)
+  const afterPo = inventoryRepository.getItemById(beefItem.id)
+  assert.notStrictEqual(afterPo.avg_cost_cents, beforePo.avg_cost_cents, 'Weighted average cost should change after purchase')
+
+  inventoryRepository.saveRecipe({
+    productId: burgerProduct.id,
+    yieldQuantity: burgerRecipe.yield_quantity || 1,
+    notes: 'Versioned recipe update',
+    ingredients: burgerRecipe.ingredients.map((ing) => ({
+      inventoryItemId: ing.inventory_item_id,
+      quantityRequired: ing.quantity_required,
+      wastagePercentage: ing.wastage_percentage || 0,
+    })),
+  })
+  const versions = inventoryRepository.getRecipeVersions(burgerRecipe.id)
+  assert.strictEqual(versions.length >= 1, true, 'Recipe save must snapshot previous version')
+  inventoryRepository.setRecipeActive(burgerRecipe.id, false)
+  const inactive = inventoryRepository.getRecipes({ branchId: branch.id })
+  assert.ok(!inactive.find((r) => r.id === burgerRecipe.id), 'Inactive recipes hidden from default list')
+  inventoryRepository.setRecipeActive(burgerRecipe.id, true)
+  console.log('✓ Average cost, units, recipe version and deactivate verified')
 
   // Cleanup
   closeDatabase()

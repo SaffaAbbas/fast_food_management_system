@@ -39,13 +39,18 @@ export function registerDeliveryHandlers() {
   })
 
   ipcMain.handle('delivery:update-rider-status', async (_event, { id, status }) => {
-    requireAnyPermission(['delivery:manage', 'pos:create_order'])
+    requireAnyPermission(['delivery:manage', 'delivery:assigned'])
     return deliveryRepository.updateRiderStatus(id, status)
   })
 
   ipcMain.handle('delivery:get-deliveries', async (_event, { branchId, filters } = {}) => {
-    requireSession()
-    return deliveryRepository.getDeliveries(getActiveBranchId(branchId), filters)
+    const session = requireSession()
+    const nextFilters = { ...(filters || {}) }
+    if (session.roleCode === 'delivery_rider') {
+      nextFilters.assignedToUserId = session.id
+      nextFilters.assignedToName = session.displayName
+    }
+    return deliveryRepository.getDeliveries(getActiveBranchId(branchId), nextFilters)
   })
 
   ipcMain.handle('delivery:get-delivery-by-id', async (_event, id) => {
@@ -64,17 +69,17 @@ export function registerDeliveryHandlers() {
   })
 
   ipcMain.handle('delivery:dispatch', async (_event, deliveryId) => {
-    requireAnyPermission(['delivery:manage', 'pos:create_order'])
+    requireAnyPermission(['delivery:manage', 'delivery:assigned'])
     return deliveryRepository.dispatchDelivery(deliveryId)
   })
 
   ipcMain.handle('delivery:complete', async (_event, { deliveryId, codCollectedCents }) => {
-    requireAnyPermission(['delivery:manage', 'pos:create_order'])
+    requireAnyPermission(['delivery:manage', 'delivery:assigned'])
     return deliveryRepository.completeDelivery(deliveryId, { codCollectedCents })
   })
 
   ipcMain.handle('delivery:fail', async (_event, { deliveryId, reason }) => {
-    requireAnyPermission(['delivery:manage', 'pos:create_order'])
+    requireAnyPermission(['delivery:manage', 'delivery:assigned'])
     return deliveryRepository.failDelivery(deliveryId, reason)
   })
 

@@ -42,11 +42,17 @@ export default function InventoryManagerView({ onBack }) {
     unitId: '',
     currentStock: '0',
     minimumLevel: '5',
+    reorderLevel: '5',
     costPerUnit: '0.00',
     category: 'General',
     supplierId: '',
+    conversionFactor: '',
+    conversionUnitId: '',
     imageUrl: null,
   })
+  const [branches, setBranches] = useState([])
+  const [transferringItem, setTransferringItem] = useState(null)
+  const [transferForm, setTransferForm] = useState({ toBranchId: '', quantity: '', reason: '' })
 
   const [adjustFormData, setAdjustFormData] = useState({
     quantityChange: '',
@@ -66,7 +72,7 @@ export default function InventoryManagerView({ onBack }) {
     setLoading(true)
     try {
       if (window.api?.inventory) {
-        const [itemsRes, unitsRes, supRes] = await Promise.all([
+        const [itemsRes, unitsRes, supRes, branchRes] = await Promise.all([
           window.api.inventory.getItems({
             search: searchQuery,
             category: selectedCategory,
@@ -74,11 +80,13 @@ export default function InventoryManagerView({ onBack }) {
           }),
           window.api.inventory.getUnits(),
           window.api.purchases?.getSuppliers ? window.api.purchases.getSuppliers() : [],
+          window.api.inventory.getBranches ? window.api.inventory.getBranches() : [],
         ])
 
         setItems(itemsRes || [])
         setUnits(unitsRes || [])
         setSuppliers(supRes || [])
+        setBranches(branchRes || [])
         if (unitsRes?.length > 0 && !formData.unitId) {
           setFormData((prev) => ({ ...prev, unitId: unitsRes[0].id }))
         }
@@ -114,7 +122,11 @@ export default function InventoryManagerView({ onBack }) {
         sku: formData.sku.trim() || `RAW-${Date.now().toString().slice(-6)}`,
         unitId: formData.unitId,
         currentStock: parseFloat(formData.currentStock || 0),
+        openingStock: parseFloat(formData.currentStock || 0),
         minimumLevel: parseFloat(formData.minimumLevel || 5.0),
+        reorderLevel: parseFloat(formData.reorderLevel || formData.minimumLevel || 5.0),
+        conversionFactor: formData.conversionFactor ? parseFloat(formData.conversionFactor) : null,
+        conversionUnitId: formData.conversionUnitId || null,
         costPerUnitCents: Math.round(parseFloat(formData.costPerUnit || 0) * 100),
         category: formData.category || 'General',
         supplierId: formData.supplierId || null,
@@ -163,6 +175,29 @@ export default function InventoryManagerView({ onBack }) {
     }
   }
 
+  const handleTransferStock = async (e) => {
+    e.preventDefault()
+    const qty = parseFloat(transferForm.quantity)
+    if (!transferForm.toBranchId || isNaN(qty) || qty <= 0) {
+      showToast('error', 'Choose a destination branch and a quantity greater than zero.')
+      return
+    }
+    try {
+      await window.api.inventory.transferStock({
+        itemId: transferringItem.id,
+        toBranchId: transferForm.toBranchId,
+        quantity: qty,
+        reason: transferForm.reason || 'Branch stock transfer',
+      })
+      showToast('success', `Transferred ${qty} ${transferringItem.unit_abbr} of ${transferringItem.name}`)
+      setTransferringItem(null)
+      setTransferForm({ toBranchId: '', quantity: '', reason: '' })
+      loadData()
+    } catch (err) {
+      showToast('error', `Transfer failed: ${err.message}`)
+    }
+  }
+
   // Load History for Item
   const handleOpenHistory = async (item) => {
     setViewingHistoryItem(item)
@@ -182,9 +217,12 @@ export default function InventoryManagerView({ onBack }) {
       unitId: units[0]?.id || '',
       currentStock: '0',
       minimumLevel: '5',
+      reorderLevel: '5',
       costPerUnit: '0.00',
       category: 'General',
       supplierId: '',
+      conversionFactor: '',
+      conversionUnitId: '',
       imageUrl: null,
     })
     setIsAddItemModalOpen(true)
@@ -198,9 +236,12 @@ export default function InventoryManagerView({ onBack }) {
       unitId: item.unit_id,
       currentStock: String(item.current_stock),
       minimumLevel: String(item.minimum_level),
-      costPerUnit: (item.cost_per_unit_cents / 100).toFixed(2),
+      reorderLevel: String(item.reorder_level ?? item.minimum_level),
+      costPerUnit: ((item.avg_cost_cents ?? item.cost_per_unit_cents) / 100).toFixed(2),
       category: item.category || 'General',
       supplierId: item.supplier_id || '',
+      conversionFactor: item.conversion_factor ? String(item.conversion_factor) : '',
+      conversionUnitId: item.conversion_unit_id || '',
       imageUrl: item.image_url || null,
     })
     setIsAddItemModalOpen(true)
@@ -222,6 +263,7 @@ export default function InventoryManagerView({ onBack }) {
   // KPI Calculations
   const totalStockValueCents = items.reduce((acc, it) => acc + (it.totalValueCents || 0), 0)
   const lowStockCount = items.filter((it) => it.isLowStock).length
+  const outOfStockCount = items.filter((it) => it.isOutOfStock).length
 
   return (
     <div className="flex flex-col h-[calc(100vh-130px)] gap-4 select-none">
@@ -275,8 +317,13 @@ export default function InventoryManagerView({ onBack }) {
           {lowStockCount > 0 && (
             <div className="px-3 py-1.5 rounded-xl bg-rose-950/70 border border-rose-800/50 text-xs flex items-center gap-1.5 text-rose-300 animate-pulse">
               <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-              <span>Low Stock Alerts:</span>
+              <span>Low / Reorder Alerts:</span>
               <span className="font-mono font-bold text-rose-100">{lowStockCount}</span>
+            </div>
+          )}
+          {outOfStockCount > 0 && (
+            <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-rose-800/40 text-xs text-rose-300">
+              Out of stock: <span className="font-mono font-bold">{outOfStockCount}</span>
             </div>
           )}
 
@@ -342,8 +389,10 @@ export default function InventoryManagerView({ onBack }) {
               <tr>
                 <th className="py-3 px-4">Item & SKU</th>
                 <th className="py-3 px-4">Category</th>
-                <th className="py-3 px-4">Current Stock</th>
-                <th className="py-3 px-4">Unit Cost</th>
+                <th className="py-3 px-4">On Hand</th>
+                <th className="py-3 px-4">Reserved</th>
+                <th className="py-3 px-4">Available</th>
+                <th className="py-3 px-4">Avg Cost</th>
                 <th className="py-3 px-4">Total Value</th>
                 <th className="py-3 px-4">Preferred Supplier</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -352,14 +401,14 @@ export default function InventoryManagerView({ onBack }) {
             <tbody className="divide-y divide-slate-800/60 font-medium">
               {loading && items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-orange-500" />
                     <span>Loading stock master...</span>
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
                     <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
                     <span>No raw inventory items match the current filter.</span>
                   </td>
@@ -389,13 +438,15 @@ export default function InventoryManagerView({ onBack }) {
                         </span>
                         {item.isLowStock && (
                           <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800/60">
-                            Min: {item.minimum_level}
+                            Reorder: {item.reorder_level}
                           </span>
                         )}
                       </div>
                     </td>
+                    <td className="py-3 px-4 font-mono text-slate-400">{item.reserved_stock || 0}</td>
+                    <td className="py-3 px-4 font-mono font-bold text-white">{item.available_stock ?? item.current_stock}</td>
                     <td className="py-3 px-4 font-mono font-bold text-slate-200">
-                      ${(item.cost_per_unit_cents / 100).toFixed(2)} / {item.unit_abbr}
+                      ${((item.avg_cost_cents ?? item.cost_per_unit_cents) / 100).toFixed(2)} / {item.unit_abbr}
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-emerald-400">
                       ${(item.totalValueCents / 100).toFixed(2)}
@@ -426,6 +477,17 @@ export default function InventoryManagerView({ onBack }) {
                         </button>
 
                         {/* Edit Item */}
+                        {branches.length > 1 && (
+                          <button
+                            onClick={() => {
+                              setTransferringItem(item)
+                              setTransferForm({ toBranchId: '', quantity: '', reason: '' })
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold"
+                          >
+                            Transfer
+                          </button>
+                        )}
                         <button
                           onClick={() => openEditModal(item)}
                           className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-all cursor-pointer"
@@ -531,7 +593,7 @@ export default function InventoryManagerView({ onBack }) {
                 )}
 
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Minimum Alert Level</label>
+                  <label className="text-[11px] text-slate-400 block mb-1">Minimum Level</label>
                   <input
                     type="number"
                     step="any"
@@ -540,11 +602,21 @@ export default function InventoryManagerView({ onBack }) {
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
                   />
                 </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Reorder Level</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.reorderLevel}
+                    onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Unit Cost Price ($)</label>
+                  <label className="text-[11px] text-slate-400 block mb-1">Cost Price ($ / unit)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -564,6 +636,33 @@ export default function InventoryManagerView({ onBack }) {
                     <option value="">-- None --</option>
                     {suppliers.map((s) => (
                       <option key={s.id} value={s.id}>{s.company_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Conversion (1 pack/box = N units)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 12"
+                    value={formData.conversionFactor}
+                    onChange={(e) => setFormData({ ...formData, conversionFactor: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-400 block mb-1">Pack / box unit (optional)</label>
+                  <select
+                    value={formData.conversionUnitId}
+                    onChange={(e) => setFormData({ ...formData, conversionUnitId: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="">-- None --</option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>
                     ))}
                   </select>
                 </div>
@@ -636,10 +735,12 @@ export default function InventoryManagerView({ onBack }) {
                   onChange={(e) => setAdjustFormData({ ...adjustFormData, movementType: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
                 >
-                  <option value="ADJUSTMENT">Stock Adjustment (Audit Correction)</option>
-                  <option value="WASTAGE">Wastage / Spoiled / Expired</option>
-                  <option value="RETURN">Return to Vendor</option>
-                  <option value="PURCHASE">Ad-hoc Cash Purchase Intake</option>
+                  <option value="PURCHASE">Stock In (Purchase / intake)</option>
+                  <option value="ADJUSTMENT">Manual adjustment (requires reason)</option>
+                  <option value="WASTAGE">Wastage</option>
+                  <option value="DAMAGE">Damage</option>
+                  <option value="EXPIRY">Expiry</option>
+                  <option value="RETURN">Return to vendor</option>
                 </select>
               </div>
 
@@ -669,6 +770,55 @@ export default function InventoryManagerView({ onBack }) {
                 >
                   Confirm Adjustment
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {transferringItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4">
+            <h2 className="text-sm font-bold text-white">Transfer: {transferringItem.name}</h2>
+            <form onSubmit={handleTransferStock} className="space-y-3">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Destination branch</label>
+                <select
+                  value={transferForm.toBranchId}
+                  onChange={(e) => setTransferForm({ ...transferForm, toBranchId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  required
+                >
+                  <option value="">Select branch</option>
+                  {branches.filter((b) => b.id !== transferringItem.branch_id).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Quantity ({transferringItem.unit_abbr})</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={transferForm.quantity}
+                  onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Reason</label>
+                <input
+                  type="text"
+                  value={transferForm.reason}
+                  onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setTransferringItem(null)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs">Cancel</button>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-orange-600 text-white text-xs font-semibold">Confirm transfer</button>
               </div>
             </form>
           </div>

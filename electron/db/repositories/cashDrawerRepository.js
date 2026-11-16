@@ -219,8 +219,8 @@ export const cashDrawerRepository = {
       if (method === 'CASH') totalCashSalesCents += p.total_cents
       else if (method === 'CARD') totalCardSalesCents += p.total_cents
       else if (method === 'BANK_TRANSFER') totalBankSalesCents += p.total_cents
-      else if (method === 'ONLINE') totalOnlineSalesCents += p.total_cents
-      else totalCashSalesCents += p.total_cents
+      else if (method === 'ONLINE' || method === 'WALLET') totalOnlineSalesCents += p.total_cents
+      else totalOnlineSalesCents += p.total_cents
     }
 
     // 2. Calculate cash movements (Cash-In and Cash-Out)

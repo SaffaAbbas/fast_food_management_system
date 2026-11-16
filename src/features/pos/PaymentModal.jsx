@@ -80,14 +80,22 @@ export default function PaymentModal({ order, branchSettings, onClose, onPayment
     let finalChangeCents = 0
 
     if (paymentMode === 'single') {
+      if (balanceDueCents <= 0) {
+        setErrorMsg('Nothing remaining to pay on this order.')
+        return
+      }
       if (selectedMethod === 'CASH' && tenderedCents < balanceDueCents) {
         setErrorMsg(`Tendered cash ($${(tenderedCents / 100).toFixed(2)}) is less than balance due ($${(balanceDueCents / 100).toFixed(2)}).`)
+        return
+      }
+      if (selectedMethod !== 'CASH' && !referenceNumber.trim()) {
+        setErrorMsg('Enter the card / bank / wallet reference number.')
         return
       }
 
       paymentsPayload = [
         {
-          paymentMethod: selectedMethod,
+          paymentMethod: selectedMethod === 'ONLINE' ? 'WALLET' : selectedMethod,
           amountCents: balanceDueCents,
           referenceNumber: referenceNumber.trim() || undefined
         }
@@ -100,12 +108,23 @@ export default function PaymentModal({ order, branchSettings, onClose, onPayment
         setErrorMsg(`Total split payments ($${(splitTotalCents / 100).toFixed(2)}) do not cover full balance due ($${(balanceDueCents / 100).toFixed(2)}).`)
         return
       }
+      if (splitRemainingCents < 0) {
+        setErrorMsg('Split amounts exceed the balance due. Reduce a line to match exactly.')
+        return
+      }
+      const missingRef = splitItems.find((it) => it.method !== 'CASH' && !String(it.reference || '').trim() && Math.round(parseFloat(it.amount || 0) * 100) > 0)
+      if (missingRef) {
+        setErrorMsg(`Reference is required for ${missingRef.method.replace('_', ' ')}.`)
+        return
+      }
 
-      paymentsPayload = splitItems.map((it) => ({
-        paymentMethod: it.method,
-        amountCents: Math.round(parseFloat(it.amount || 0) * 100),
-        referenceNumber: it.reference.trim() || undefined
-      }))
+      paymentsPayload = splitItems
+        .map((it) => ({
+          paymentMethod: it.method === 'ONLINE' ? 'WALLET' : it.method,
+          amountCents: Math.round(parseFloat(it.amount || 0) * 100),
+          referenceNumber: it.reference.trim() || undefined
+        }))
+        .filter((p) => p.amountCents > 0)
       finalTenderedCents = splitTotalCents
       finalChangeCents = 0
     }
@@ -204,7 +223,7 @@ export default function PaymentModal({ order, branchSettings, onClose, onPayment
                   { id: 'CASH', name: 'Cash', icon: DollarSign },
                   { id: 'CARD', name: 'Debit/Credit Card', icon: CreditCard },
                   { id: 'BANK_TRANSFER', name: 'Bank Transfer', icon: Building2 },
-                  { id: 'ONLINE', name: 'Online / Wallet', icon: Smartphone }
+                  { id: 'WALLET', name: 'Wallet / Online', icon: Smartphone }
                 ].map((m) => {
                   const Icon = m.icon
                   const isSelected = selectedMethod === m.id
@@ -293,7 +312,7 @@ export default function PaymentModal({ order, branchSettings, onClose, onPayment
               {selectedMethod !== 'CASH' && (
                 <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-2">
                   <label className="block text-xs font-semibold text-slate-300">
-                    Transaction / Auth Reference Number (Optional)
+                    Transaction / Auth Reference Number *
                   </label>
                   <input
                     type="text"
@@ -335,7 +354,7 @@ export default function PaymentModal({ order, branchSettings, onClose, onPayment
                       <option value="CASH">Cash</option>
                       <option value="CARD">Card</option>
                       <option value="BANK_TRANSFER">Bank Transfer</option>
-                      <option value="ONLINE">Online Wallet</option>
+                      <option value="WALLET">Wallet / Online</option>
                     </select>
 
                     <div className="w-32 relative">

@@ -95,7 +95,13 @@ export const reservationRepository = {
     }
 
     sql += ' ORDER BY r.reservation_date ASC, r.reservation_time ASC'
-    return db.prepare(sql).all(...params)
+    return db.prepare(sql).all(...params).map((r) => ({
+      ...r,
+      guest_name: r.customer_name,
+      guest_phone: r.customer_phone,
+      start_time: r.reservation_time,
+      special_requests: r.notes,
+    }))
   },
 
   /**
@@ -126,8 +132,18 @@ export const reservationRepository = {
     const now = new Date().toISOString()
 
     const createTx = db.transaction(() => {
-      const resDate = data.reservationDate || data.reservationTime.slice(0, 10)
-      const resTime = data.reservationTime // e.g. "2026-10-21T19:00:00" or "19:00"
+      const customerName = data.customerName || data.guestName || ''
+      const customerPhone = data.customerPhone || data.guestPhone || ''
+      const reservationTimeRaw = data.reservationTime || data.startTime
+      if (!customerName.trim() || !customerPhone.trim()) {
+        throw new Error('Guest name and phone are required.')
+      }
+      if (!reservationTimeRaw) throw new Error('Reservation date and time are required.')
+      const resDate = data.reservationDate || String(reservationTimeRaw).slice(0, 10)
+      const resTime = reservationTimeRaw
+      data.customerName = customerName
+      data.customerPhone = customerPhone
+      data.notes = data.notes || data.specialRequests || null
       const durationMins = data.durationMinutes || 90
 
       // Double-booking check: If table is assigned, ensure no overlapping reservation
@@ -257,12 +273,14 @@ export const reservationRepository = {
   /**
    * Check Table Availability for a given date, time and party size
    */
-  checkAvailability: ({ branchId, date, time, partySize, durationMinutes = 90 }) => {
+  checkAvailability: ({ branchId, date, time, startTime, partySize, durationMinutes = 90 }) => {
     const db = getDb()
     const validBranchId = resolveValidBranchId(db, branchId)
 
     const requiredCap = parseInt(partySize, 10) || 1
-    const targetStart = new Date(`${date}T${time}`).getTime()
+    const resolvedDate = date || (startTime ? String(startTime).slice(0, 10) : null)
+    const resolvedTime = time || (startTime && String(startTime).includes('T') ? String(startTime).slice(11, 16) : time)
+    const targetStart = new Date(startTime || `${resolvedDate}T${resolvedTime}`).getTime()
     const targetEnd = targetStart + durationMinutes * 60 * 1000
 
     // Get all active tables with capacity >= partySize
@@ -280,7 +298,7 @@ export const reservationRepository = {
       FROM reservations
       WHERE branch_id = ? AND (reservation_date = ? OR reservation_time LIKE ?)
         AND status IN ('CONFIRMED', 'PENDING', 'SEATED') AND table_id IS NOT NULL
-    `).all(validBranchId, date, `${date}%`)
+    `).all(validBranchId, resolvedDate, `${resolvedDate}%`)
 
     const bookedTableIds = new Set()
     for (const b of dayBookings) {
@@ -293,9 +311,9 @@ export const reservationRepository = {
       }
     }
 
-    return eligibleTables.map((t) => ({
-      ...t,
-      isAvailable: !bookedTableIds.has(t.id),
-    }))
+    return eligibleTables.map((t) => {
+      const free = !bookedTableIds.has(t.id)
+      return { ...t, isAvailable: free, is_available: free }
+    })
   },
 }

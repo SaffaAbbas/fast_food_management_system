@@ -21,21 +21,48 @@ import {
   WifiOff
 } from 'lucide-react'
 
-export default function SettingsView({ onBack }) {
+import { userCan } from '../../lib/access.js'
+import ImagePicker from '../../components/ImagePicker.jsx'
+
+export default function SettingsView({ currentUser, onBack }) {
+  const canSystem = userCan(currentUser, 'settings:manage')
   const [activeTab, setActiveTab] = useState('general') // 'general', 'taxes', 'receipt', 'database', 'audit'
   const [settings, setSettings] = useState({
     business_name: 'FastBite Gourmet Grill',
+    legal_name: '',
+    logo_url: '',
     branch_phone: '+1 555-0199',
     branch_email: 'contact@restaurantpos.local',
     branch_address: '100 Gourmet Plaza, Suite 4',
+    social_contact: '',
     currency_code: 'USD',
     currency_symbol: '$',
+    number_format: '1,234.56',
     tax_rate_percentage: '5.0',
     service_charge_percentage: '0.0',
     delivery_fee: '3.00',
     receipt_header_msg: 'Welcome to FastBite Gourmet Grill!',
     receipt_footer_msg: 'Thank you for your visit! Please come again.',
-    auto_print_kds: '1',
+    auto_print_receipt: '0',
+    receipt_printer_name: '',
+    kitchen_printer_name: '',
+    kds_mode: 'SCREEN',
+    auto_print_kds: '0',
+    kds_delay_minutes: '15',
+    order_number_prefix: 'ORD',
+    ui_theme: 'orange',
+    date_format: 'YYYY-MM-DD',
+    time_format: '24h',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    notify_low_stock: '1',
+    backup_retention_days: '14',
+    hold_orders_enabled: '1',
+    require_table_for_dine_in: '1',
+    loyalty_earn_per_dollar: '1',
+    loyalty_redeem_min: '50',
+    loyalty_cents_per_point: '1',
+    notify_customer_on_status: '1',
+    recipe_auto_deduct: '1',
   })
 
   const [dbStatus, setDbStatus] = useState(null)
@@ -65,9 +92,13 @@ export default function SettingsView({ onBack }) {
         setDbStatus(stat)
       }
 
-      if (window.api?.reports?.getAuditLogs) {
-        const logs = await window.api.reports.getAuditLogs({ limit: 40 })
-        setAuditLogs(logs || [])
+      try {
+        if (window.api?.reports?.getAuditLogs && (canSystem || userCan(currentUser, 'audit:view'))) {
+          const logs = await window.api.reports.getAuditLogs({ limit: 40 })
+          setAuditLogs(logs || [])
+        }
+      } catch (e) {
+        setAuditLogs([])
       }
 
       if (window.api?.sync?.getConfig) {
@@ -101,6 +132,7 @@ export default function SettingsView({ onBack }) {
     try {
       if (window.api?.settings?.saveBatch) {
         await window.api.settings.saveBatch(settings)
+        if (settings.ui_theme) document.documentElement.setAttribute('data-theme', settings.ui_theme)
         showNotification('System settings saved successfully!')
       }
     } catch (err) {
@@ -237,6 +269,38 @@ export default function SettingsView({ onBack }) {
           Taxes & Charges
         </button>
         <button
+          onClick={() => setActiveTab('printers')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === 'printers' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Printers / KDS
+        </button>
+        <button
+          onClick={() => setActiveTab('appearance')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === 'appearance' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Theme & format
+        </button>
+        <button
+          onClick={() => setActiveTab('workflow')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === 'workflow' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Workflow
+        </button>
+        <button
+          onClick={() => setActiveTab('roles')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+            activeTab === 'roles' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Users & roles
+        </button>
+        <button
           onClick={() => setActiveTab('receipt')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
             activeTab === 'receipt' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'
@@ -254,6 +318,7 @@ export default function SettingsView({ onBack }) {
           <Database className="w-4 h-4" />
           SQLite Database & Backup
         </button>
+        {canSystem && (
         <button
           onClick={() => setActiveTab('cloud')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -263,6 +328,8 @@ export default function SettingsView({ onBack }) {
           <Cloud className="w-4 h-4" />
           Cloud sync
         </button>
+        )}
+        {(canSystem || userCan(currentUser, 'audit:view')) && (
         <button
           onClick={() => setActiveTab('audit')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -272,6 +339,7 @@ export default function SettingsView({ onBack }) {
           <ShieldCheck className="w-4 h-4" />
           Audit Trail Logs
         </button>
+        )}
       </div>
 
       {/* Notifications */}
@@ -308,7 +376,7 @@ export default function SettingsView({ onBack }) {
           </h3>
 
           <div className="space-y-1">
-            <label className="text-slate-400 font-semibold">Restaurant Business Name *</label>
+            <label className="text-slate-400 font-semibold">Restaurant trading name *</label>
             <input
               type="text"
               required
@@ -317,6 +385,20 @@ export default function SettingsView({ onBack }) {
               className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-semibold focus:outline-none focus:border-orange-500"
             />
           </div>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Legal / registered business name</label>
+            <input
+              type="text"
+              value={settings.legal_name || ''}
+              onChange={(e) => setSettings({ ...settings, legal_name: e.target.value })}
+              className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white focus:outline-none focus:border-orange-500"
+            />
+          </div>
+          <ImagePicker
+            label="Logo"
+            value={settings.logo_url}
+            onChange={(url) => setSettings({ ...settings, logo_url: url || '' })}
+          />
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -349,6 +431,16 @@ export default function SettingsView({ onBack }) {
             />
           </div>
 
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Social / extra contact (website, WhatsApp, Instagram)</label>
+            <input
+              type="text"
+              value={settings.social_contact || ''}
+              onChange={(e) => setSettings({ ...settings, social_contact: e.target.value })}
+              className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white focus:outline-none focus:border-orange-500"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-slate-400 font-semibold">Currency Code</label>
@@ -367,6 +459,18 @@ export default function SettingsView({ onBack }) {
                 onChange={(e) => setSettings({ ...settings, currency_symbol: e.target.value })}
                 className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono text-center font-bold focus:outline-none focus:border-orange-500"
               />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Number format</label>
+              <select
+                value={settings.number_format || '1,234.56'}
+                onChange={(e) => setSettings({ ...settings, number_format: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white"
+              >
+                <option value="1,234.56">1,234.56</option>
+                <option value="1.234,56">1.234,56</option>
+                <option value="1 234.56">1 234.56</option>
+              </select>
             </div>
           </div>
         </form>
@@ -412,6 +516,62 @@ export default function SettingsView({ onBack }) {
               />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Kitchen delay highlight (minutes)</label>
+              <input
+                type="number"
+                min="1"
+                value={settings.kds_delay_minutes || '15'}
+                onChange={(e) => setSettings({ ...settings, kds_delay_minutes: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Loyalty points per $1 spent</label>
+              <input
+                type="number"
+                step="0.1"
+                value={settings.loyalty_earn_per_dollar || '1'}
+                onChange={(e) => setSettings({ ...settings, loyalty_earn_per_dollar: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Minimum points to redeem</label>
+              <input
+                type="number"
+                value={settings.loyalty_redeem_min || '50'}
+                onChange={(e) => setSettings({ ...settings, loyalty_redeem_min: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Cents of discount per point</label>
+              <input
+                type="number"
+                value={settings.loyalty_cents_per_point || '1'}
+                onChange={(e) => setSettings({ ...settings, loyalty_cents_per_point: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input
+              type="checkbox"
+              checked={settings.notify_customer_on_status !== '0'}
+              onChange={(e) => setSettings({ ...settings, notify_customer_on_status: e.target.checked ? '1' : '0' })}
+            />
+            Log customer notifications when delivery/kitchen status changes
+          </label>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input
+              type="checkbox"
+              checked={settings.recipe_auto_deduct !== '0'}
+              onChange={(e) => setSettings({ ...settings, recipe_auto_deduct: e.target.checked ? '1' : '0' })}
+            />
+            Automatically deduct recipe ingredients when an order is paid
+          </label>
         </form>
       )}
 
@@ -442,7 +602,116 @@ export default function SettingsView({ onBack }) {
               className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white focus:outline-none focus:border-amber-500"
             />
           </div>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input
+              type="checkbox"
+              checked={settings.auto_print_receipt === '1'}
+              onChange={(e) => setSettings({ ...settings, auto_print_receipt: e.target.checked ? '1' : '0' })}
+            />
+            Auto-print receipt after payment
+          </label>
         </form>
+      )}
+
+      {activeTab === 'printers' && (
+        <form onSubmit={handleSaveSettings} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 max-w-2xl text-xs">
+          <h3 className="text-sm font-bold text-white">Receipt printer, kitchen printer & KDS</h3>
+          <p className="text-slate-400">Names are stored for this PC. Windows print dialog still selects the device at print time.</p>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Receipt printer</label>
+            <input value={settings.receipt_printer_name || ''} onChange={(e) => setSettings({ ...settings, receipt_printer_name: e.target.value })} placeholder="e.g. EPSON TM-T20" className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Kitchen printer</label>
+            <input value={settings.kitchen_printer_name || ''} onChange={(e) => setSettings({ ...settings, kitchen_printer_name: e.target.value })} placeholder="e.g. Kitchen-80mm" className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Kitchen display mode</label>
+            <select value={settings.kds_mode || 'SCREEN'} onChange={(e) => setSettings({ ...settings, kds_mode: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+              <option value="SCREEN">KDS screen only</option>
+              <option value="PRINTER">Kitchen printer tickets</option>
+              <option value="BOTH">KDS + printer</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input type="checkbox" checked={settings.auto_print_kds === '1'} onChange={(e) => setSettings({ ...settings, auto_print_kds: e.target.checked ? '1' : '0' })} />
+            Auto-print kitchen ticket when order is confirmed
+          </label>
+        </form>
+      )}
+
+      {activeTab === 'appearance' && (
+        <form onSubmit={handleSaveSettings} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 max-w-2xl text-xs">
+          <h3 className="text-sm font-bold text-white">Color theme, date/time</h3>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">UI theme</label>
+            <select value={settings.ui_theme || 'orange'} onChange={(e) => setSettings({ ...settings, ui_theme: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+              <option value="orange">Orange (default)</option>
+              <option value="forest">Forest green</option>
+              <option value="navy">Navy</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Date format</label>
+              <select value={settings.date_format || 'YYYY-MM-DD'} onChange={(e) => setSettings({ ...settings, date_format: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Time format</label>
+              <select value={settings.time_format || '24h'} onChange={(e) => setSettings({ ...settings, time_format: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+                <option value="24h">24-hour</option>
+                <option value="12h">12-hour</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-400 font-semibold">Timezone</label>
+              <input value={settings.timezone || ''} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+            </div>
+          </div>
+        </form>
+      )}
+
+      {activeTab === 'workflow' && (
+        <form onSubmit={handleSaveSettings} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 max-w-2xl text-xs">
+          <h3 className="text-sm font-bold text-white">Order numbering, notifications, menu workflow</h3>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Order number prefix</label>
+            <input value={settings.order_number_prefix || 'ORD'} onChange={(e) => setSettings({ ...settings, order_number_prefix: e.target.value.toUpperCase() })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+          </div>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input type="checkbox" checked={settings.hold_orders_enabled !== '0'} onChange={(e) => setSettings({ ...settings, hold_orders_enabled: e.target.checked ? '1' : '0' })} />
+            Allow holding drafts on POS
+          </label>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input type="checkbox" checked={settings.require_table_for_dine_in !== '0'} onChange={(e) => setSettings({ ...settings, require_table_for_dine_in: e.target.checked ? '1' : '0' })} />
+            Require a table for dine-in orders
+          </label>
+          <label className="flex items-center gap-2 text-slate-300">
+            <input type="checkbox" checked={settings.notify_low_stock !== '0'} onChange={(e) => setSettings({ ...settings, notify_low_stock: e.target.checked ? '1' : '0' })} />
+            Low-stock notifications
+          </label>
+          <div className="space-y-1">
+            <label className="text-slate-400 font-semibold">Keep local backups (days)</label>
+            <input type="number" min="1" value={settings.backup_retention_days || '14'} onChange={(e) => setSettings({ ...settings, backup_retention_days: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+          </div>
+        </form>
+      )}
+
+      {activeTab === 'roles' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-3 max-w-2xl text-xs text-slate-300">
+          <h3 className="text-sm font-bold text-white">Users, roles & permissions</h3>
+          <p>Role matrix is stored in SQLite (`roles`, `permissions`, `role_permissions`). Create users and assign roles under <strong>Staff</strong>.</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Admin / manager: full POS, discounts, reports, settings</li>
+            <li>Cashier: orders, payments, coupons — not manual override discounts</li>
+            <li>Waiter: create tickets, no settlement unless granted</li>
+            <li>Kitchen: KDS only</li>
+          </ul>
+        </div>
       )}
 
       {/* TAB 4: DATABASE & BACKUP */}
@@ -506,12 +775,20 @@ export default function SettingsView({ onBack }) {
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4 max-w-2xl text-xs">
           <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-3 flex items-center gap-2">
             <Cloud className="w-4 h-4 text-orange-400" />
-            Offline POS + Supabase backup
+            Offline POS + online backup
           </h3>
-          <p className="text-slate-500 leading-relaxed">
-            Sales, menu and customers always save on this computer first. Internet is optional.
-            When the network returns, queued changes upload to your Supabase project.
-          </p>
+          <div className="rounded-xl border border-orange-100 bg-orange-50 p-3 text-slate-700 leading-relaxed space-y-2">
+            <p>
+              <strong>GitHub is not the restaurant database.</strong> GitHub stores app source code.
+              A restaurant PC does not download GitHub when Wi‑Fi returns. New screens / POS button
+              fixes need a new installer.
+            </p>
+            <p>
+              <strong>Supabase is the online data copy.</strong> Orders, menu and customers save first
+              in local SQLite. When internet comes back, this PC uploads queued work and pulls other
+              terminals’ records from Supabase.
+            </p>
+          </div>
           <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
             syncStatus?.online ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'
           }`}>

@@ -27,7 +27,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('customer:create', async (_event, customerData) => {
-    requireSession()
+    requireAnyPermission(['customers:manage', 'customers:view', 'pos:create_order'])
     const branchId = getActiveBranchId(customerData.branchId)
     return customerRepository.createCustomer({
       ...customerData,
@@ -36,6 +36,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('customer:update', async (_event, { id, data }) => {
+    requireAnyPermission(['customers:manage', 'pos:create_order'])
     return customerRepository.updateCustomer(id, data || {})
   })
 
@@ -47,6 +48,11 @@ export function registerCustomerIpcHandlers() {
 
   ipcMain.handle('customer:get-summary', async (_event, branchId) => {
     return customerRepository.getCrmSummary(getActiveBranchId(branchId))
+  })
+
+  ipcMain.handle('customer:merge', async (_event, data) => {
+    requireAnyPermission(['customers:manage', 'pos:process_refund'])
+    return customerRepository.mergeCustomers(data)
   })
 
   // ==========================================
@@ -64,6 +70,7 @@ export function registerCustomerIpcHandlers() {
   })
 
   ipcMain.handle('reservation:update-status', async (_event, { id, status }) => {
+    requirePermission('reservations:manage')
     return reservationRepository.updateReservationStatus(id, status)
   })
 
@@ -91,5 +98,10 @@ export function registerCustomerIpcHandlers() {
   ipcMain.handle('coupon:validate', async (_event, data) => {
     const branchId = getActiveBranchId(data.branchId)
     return couponRepository.validateCoupon({ ...data, branchId })
+  })
+
+  ipcMain.handle('coupon:evaluate-auto', async (_event, data = {}) => {
+    const branchId = getActiveBranchId(data.branchId)
+    return couponRepository.evaluateAutoPromotions({ ...data, branchId })
   })
 }

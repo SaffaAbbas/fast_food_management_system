@@ -60,7 +60,9 @@ export default function CustomersView({ onBack }) {
     birthDate: '',
     notes: '',
     imageUrl: null,
+    discountPercent: 0,
   })
+  const [mergeAbsorbId, setMergeAbsorbId] = useState('')
 
   // Loyalty Adjust Form
   const [loyaltyForm, setLoyaltyForm] = useState({
@@ -70,15 +72,33 @@ export default function CustomersView({ onBack }) {
   })
 
   // Coupon Form
-  const [couponForm, setCouponForm] = useState({
+  const emptyCouponForm = {
     code: '',
     title: '',
-    discountType: 'PERCENTAGE', // PERCENTAGE, FIXED_AMOUNT
+    discountType: 'PERCENTAGE',
     discountValue: '',
     minOrderAmount: '',
     maxDiscountAmount: '',
     usageLimit: 100,
-  })
+    customerId: '',
+    appliesTo: 'ALL',
+    targetId: '',
+    buyQty: 2,
+    getQty: 1,
+    getProductId: '',
+    startDate: '',
+    endDate: '',
+    startTime: '',
+    endTime: '',
+    customerSegment: 'ALL',
+    isAutoApply: false,
+    perCustomerLimit: 0,
+    daysOfWeek: '0,1,2,3,4,5,6',
+  }
+  const [couponForm, setCouponForm] = useState(emptyCouponForm)
+  const [menuCategories, setMenuCategories] = useState([])
+  const [menuProducts, setMenuProducts] = useState([])
+  const [menuCombos, setMenuCombos] = useState([])
 
   // Load Customers, Summary & Coupons
   const loadData = async () => {
@@ -101,6 +121,15 @@ export default function CustomersView({ onBack }) {
       if (window.api?.coupons?.getCoupons) {
         const coupList = await window.api.coupons.getCoupons()
         setCoupons(coupList || [])
+      }
+      if (window.api?.product?.getCategories) {
+        setMenuCategories((await window.api.product.getCategories()) || [])
+      }
+      if (window.api?.product?.getProducts) {
+        setMenuProducts((await window.api.product.getProducts({})) || [])
+      }
+      if (window.api?.product?.getCombos) {
+        setMenuCombos((await window.api.product.getCombos()) || [])
       }
     } catch (err) {
       console.error('Failed to load customer/coupon data:', err)
@@ -151,6 +180,7 @@ export default function CustomersView({ onBack }) {
         birthDate: '',
         notes: '',
         imageUrl: null,
+        discountPercent: 0,
       })
       loadData()
     } catch (err) {
@@ -171,6 +201,7 @@ export default function CustomersView({ onBack }) {
       birthDate: c.birth_date || '',
       notes: c.notes || '',
       imageUrl: c.image_url || null,
+      discountPercent: c.discount_percent || 0,
     })
     setShowAddCustomerModal(true)
   }
@@ -226,8 +257,12 @@ export default function CustomersView({ onBack }) {
   // Handle Save Coupon
   const handleSaveCoupon = async (e) => {
     e.preventDefault()
-    if (!couponForm.code.trim() || !couponForm.title.trim() || !couponForm.discountValue) {
-      setError('Coupon code, title, and discount value are required.')
+    if (!couponForm.code.trim() || !couponForm.title.trim()) {
+      setError('Coupon code and title are required.')
+      return
+    }
+    if (couponForm.discountType !== 'BOGO' && !couponForm.discountValue) {
+      setError('Discount value is required.')
       return
     }
 
@@ -238,28 +273,34 @@ export default function CustomersView({ onBack }) {
         discountType: couponForm.discountType,
         discountValue: couponForm.discountType === 'FIXED_AMOUNT'
           ? Math.round(parseFloat(couponForm.discountValue) * 100)
-          : parseInt(couponForm.discountValue, 10),
+          : parseInt(couponForm.discountValue || 0, 10),
         minOrderCents: couponForm.minOrderAmount
           ? Math.round(parseFloat(couponForm.minOrderAmount) * 100)
           : 0,
         maxDiscountCents: couponForm.maxDiscountAmount
           ? Math.round(parseFloat(couponForm.maxDiscountAmount) * 100)
           : null,
-        usageLimit: parseInt(couponForm.usageLimit, 10) || 100,
+        usageLimit: parseInt(couponForm.usageLimit, 10) || 0,
+        customerId: couponForm.customerId || undefined,
+        appliesTo: couponForm.appliesTo,
+        targetId: couponForm.targetId || undefined,
+        buyQty: parseInt(couponForm.buyQty, 10) || 0,
+        getQty: parseInt(couponForm.getQty, 10) || 0,
+        getProductId: couponForm.getProductId || undefined,
+        startDate: couponForm.startDate || undefined,
+        endDate: couponForm.endDate || undefined,
+        startTime: couponForm.startTime || undefined,
+        endTime: couponForm.endTime || undefined,
+        daysOfWeek: couponForm.daysOfWeek || undefined,
+        customerSegment: couponForm.customerSegment || 'ALL',
+        isAutoApply: Boolean(couponForm.isAutoApply),
+        perCustomerLimit: parseInt(couponForm.perCustomerLimit, 10) || 0,
       }
 
       await window.api.coupons.create(payload)
       showNotification(`Promotional coupon "${payload.code}" created successfully!`)
       setShowAddCouponModal(false)
-      setCouponForm({
-        code: '',
-        title: '',
-        discountType: 'PERCENTAGE',
-        discountValue: '',
-        minOrderAmount: '',
-        maxDiscountAmount: '',
-        usageLimit: 100,
-      })
+      setCouponForm(emptyCouponForm)
       loadData()
     } catch (err) {
       console.error('Failed to create coupon:', err)
@@ -340,6 +381,7 @@ export default function CustomersView({ onBack }) {
                   birthDate: '',
                   notes: '',
                   imageUrl: null,
+                  discountPercent: 0,
                 })
                 setShowAddCustomerModal(true)
               }}
@@ -604,7 +646,11 @@ export default function CustomersView({ onBack }) {
               <div className="flex items-start justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
-                    {c.discount_type === 'PERCENTAGE' ? `${c.discount_value}% OFF` : `$${(c.discount_value / 100).toFixed(2)} OFF`}
+                    {c.discount_type === 'BOGO'
+                      ? `Buy ${c.buy_qty} Get ${c.get_qty}`
+                      : c.discount_type === 'PERCENTAGE'
+                        ? `${c.discount_value}% OFF`
+                        : `$${(c.discount_value / 100).toFixed(2)} OFF`}
                   </span>
                   <h3 className="text-base font-bold text-white mt-2">{c.title}</h3>
                 </div>
@@ -631,12 +677,31 @@ export default function CustomersView({ onBack }) {
                     {c.min_order_cents ? `$${(c.min_order_cents / 100).toFixed(2)}` : 'None'}
                   </span>
                 </div>
-                {c.max_discount_cents && (
+                {c.max_discount_cents ? (
                   <div className="flex justify-between">
                     <span>Max Cap:</span>
                     <span className="text-white font-mono">${(c.max_discount_cents / 100).toFixed(2)}</span>
                   </div>
-                )}
+                ) : null}
+                <div className="flex justify-between">
+                  <span>Applies:</span>
+                  <span className="text-white">{c.applies_to || 'ALL'}{c.customer_segment && c.customer_segment !== 'ALL' ? ` · ${c.customer_segment}` : ''}</span>
+                </div>
+                {(c.start_time || c.end_time) ? (
+                  <div className="flex justify-between">
+                    <span>Hours:</span>
+                    <span className="text-white font-mono">{c.start_time || '00:00'}–{c.end_time || '23:59'}</span>
+                  </div>
+                ) : null}
+                {(c.start_date || c.end_date) ? (
+                  <div className="flex justify-between">
+                    <span>Dates:</span>
+                    <span className="text-white font-mono text-[10px]">{(c.start_date || '…').slice(0, 10)} → {(c.end_date || '…').slice(0, 10)}</span>
+                  </div>
+                ) : null}
+                {c.is_auto_apply ? (
+                  <div className="text-emerald-400 font-semibold">Auto-applies (happy hour / deal)</div>
+                ) : null}
                 <div className="flex justify-between">
                   <span>Status:</span>
                   <span className={c.is_active ? 'text-emerald-400 font-bold' : 'text-rose-400'}>
@@ -730,6 +795,18 @@ export default function CustomersView({ onBack }) {
                     value={customerForm.birthDate}
                     onChange={(e) => setCustomerForm({ ...customerForm, birthDate: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Customer discount %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={customerForm.discountPercent}
+                    onChange={(e) => setCustomerForm({ ...customerForm, discountPercent: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono"
                   />
                 </div>
                 <div className="space-y-1">
@@ -908,6 +985,84 @@ export default function CustomersView({ onBack }) {
                     {customerDetails.order_count || 0}
                   </p>
                 </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider">Avg order</span>
+                  <p className="text-lg font-black text-white font-mono">
+                    ${((customerDetails.avg_order_value_cents || 0) / 100).toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider">Last order</span>
+                  <p className="text-sm font-bold text-slate-200">
+                    {customerDetails.last_order_at
+                      ? new Date(customerDetails.last_order_at).toLocaleDateString()
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider">Personal discount</span>
+                  <p className="text-lg font-black text-amber-300 font-mono">
+                    {customerDetails.discount_percent || 0}%
+                  </p>
+                </div>
+              </div>
+
+              {(customerDetails.favouriteProducts || []).length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Favourite products</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {customerDetails.favouriteProducts.map((p) => (
+                      <span key={p.id} className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
+                        {p.name} ×{p.times_ordered}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(customerDetails.notifications || []).length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Status notifications</h3>
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {customerDetails.notifications.map((n) => (
+                      <p key={n.id} className="text-[11px] text-slate-400">
+                        {new Date(n.created_at).toLocaleString()} — {n.message}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={mergeAbsorbId}
+                  onChange={(e) => setMergeAbsorbId(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-white"
+                >
+                  <option value="">Merge another profile into this one</option>
+                  {customers.filter((c) => c.id !== customerDetails.id).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!mergeAbsorbId) return
+                    if (!window.confirm('Merge the selected profile into this customer? Orders and points will move here.')) return
+                    try {
+                      await window.api.customers.merge({ keepId: customerDetails.id, absorbId: mergeAbsorbId })
+                      showNotification('Customers merged.')
+                      setMergeAbsorbId('')
+                      openHistoryModal(customerDetails)
+                      loadData()
+                    } catch (err) {
+                      setError(err.message)
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-700 text-white font-bold"
+                >
+                  Merge
+                </button>
               </div>
 
               {/* Loyalty Ledger */}
@@ -984,7 +1139,7 @@ export default function CustomersView({ onBack }) {
       {/* Modal: Create Promotional Coupon */}
       {showAddCouponModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <Ticket className="w-5 h-5 text-emerald-400" />
@@ -1020,6 +1175,7 @@ export default function CustomersView({ onBack }) {
                   >
                     <option value="PERCENTAGE">Percentage (%) Off</option>
                     <option value="FIXED_AMOUNT">Fixed Dollar ($) Off</option>
+                    <option value="BOGO">Buy X Get Y</option>
                   </select>
                 </div>
               </div>
@@ -1037,6 +1193,7 @@ export default function CustomersView({ onBack }) {
               </div>
 
               <div className="grid grid-cols-3 gap-3">
+                {couponForm.discountType !== 'BOGO' && (
                 <div className="space-y-1">
                   <label className="text-slate-400 font-semibold">
                     {couponForm.discountType === 'PERCENTAGE' ? 'Discount % *' : 'Amount ($) *'}
@@ -1051,6 +1208,7 @@ export default function CustomersView({ onBack }) {
                     className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
                 </div>
+                )}
                 <div className="space-y-1">
                   <label className="text-slate-400 font-semibold">Min Spend ($)</label>
                   <input
@@ -1087,6 +1245,123 @@ export default function CustomersView({ onBack }) {
                   />
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Applies to</label>
+                  <select
+                    value={couponForm.appliesTo}
+                    onChange={(e) => setCouponForm({ ...couponForm, appliesTo: e.target.value, targetId: '' })}
+                    className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white"
+                  >
+                    <option value="ALL">Entire order</option>
+                    <option value="CATEGORY">Category</option>
+                    <option value="PRODUCT">Product</option>
+                    <option value="COMBO">Combo / deal</option>
+                  </select>
+                </div>
+                {couponForm.appliesTo !== 'ALL' && (
+                  <div className="space-y-1">
+                    <label className="text-slate-400 font-semibold">Target</label>
+                    <select
+                      value={couponForm.targetId}
+                      onChange={(e) => setCouponForm({ ...couponForm, targetId: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white"
+                    >
+                      <option value="">Select…</option>
+                      {couponForm.appliesTo === 'CATEGORY' && menuCategories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                      {couponForm.appliesTo === 'PRODUCT' && menuProducts.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                      {couponForm.appliesTo === 'COMBO' && menuCombos.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {couponForm.discountType === 'BOGO' && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-slate-400 font-semibold">Buy qty</label>
+                    <input type="number" min="1" value={couponForm.buyQty} onChange={(e) => setCouponForm({ ...couponForm, buyQty: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-slate-400 font-semibold">Get qty free</label>
+                    <input type="number" min="1" value={couponForm.getQty} onChange={(e) => setCouponForm({ ...couponForm, getQty: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-slate-400 font-semibold">Free product</label>
+                    <select value={couponForm.getProductId} onChange={(e) => setCouponForm({ ...couponForm, getProductId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+                      <option value="">Same as target</option>
+                      {menuProducts.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Start date/time</label>
+                  <input type="datetime-local" value={couponForm.startDate} onChange={(e) => setCouponForm({ ...couponForm, startDate: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">End date/time</label>
+                  <input type="datetime-local" value={couponForm.endDate} onChange={(e) => setCouponForm({ ...couponForm, endDate: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Happy-hour from</label>
+                  <input type="time" value={couponForm.startTime} onChange={(e) => setCouponForm({ ...couponForm, startTime: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Happy-hour until</label>
+                  <input type="time" value={couponForm.endTime} onChange={(e) => setCouponForm({ ...couponForm, endTime: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Customer segment</label>
+                  <select value={couponForm.customerSegment} onChange={(e) => setCouponForm({ ...couponForm, customerSegment: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white">
+                    <option value="ALL">All customers</option>
+                    <option value="VIP">VIP</option>
+                    <option value="REGULAR">Regular</option>
+                    <option value="CORPORATE">Corporate</option>
+                    <option value="WHOLESALE">Wholesale</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-semibold">Per-customer limit</label>
+                  <input type="number" min="0" value={couponForm.perCustomerLimit} onChange={(e) => setCouponForm({ ...couponForm, perCustomerLimit: e.target.value })} className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white font-mono" />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-slate-300">
+                <input type="checkbox" checked={couponForm.isAutoApply} onChange={(e) => setCouponForm({ ...couponForm, isAutoApply: e.target.checked })} />
+                Auto-apply (no code needed at POS — happy hour / deal)
+              </label>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 font-semibold">Limit to one customer (optional)</label>
+                <select
+                  value={couponForm.customerId}
+                  onChange={(e) => setCouponForm({ ...couponForm, customerId: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-white"
+                >
+                  <option value="">All customers</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>
+                  ))}
+                </select>
+              </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button

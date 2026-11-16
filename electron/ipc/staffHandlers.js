@@ -48,6 +48,14 @@ export function registerStaffIpcHandlers() {
     return staffRepository.getAttendanceLogs({ ...params, branchId })
   })
 
+  ipcMain.handle('staff:mark-attendance', async (_event, data) => {
+    requirePermission('staff:manage')
+    return staffRepository.markAttendance({
+      ...data,
+      branchId: getActiveBranchId(data.branchId),
+    })
+  })
+
   // ==========================================
   // SHIFTS & PERFORMANCE
   // ==========================================

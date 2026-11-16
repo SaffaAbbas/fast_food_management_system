@@ -9,6 +9,16 @@ function uuid() {
  * Kitchen Display System (KDS) Repository
  * Manages kitchen stations, real-time ticket statuses, preparation tracking, and KOT generation.
  */
+function getSettingInt(db, key, fallback) {
+  try {
+    const row = db.prepare('SELECT setting_value FROM system_settings WHERE setting_key = ?').get(key)
+    const parsed = parseInt(row?.setting_value, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export const kitchenRepository = {
   /**
    * Retrieve active kitchen stations for a branch
@@ -176,12 +186,12 @@ export const kitchenRepository = {
       const orderCreatedMs = new Date(ord.created_at).getTime()
       const elapsedMinutes = Math.max(0, Math.floor((nowMs - orderCreatedMs) / 60000))
 
-      // Delay status
-      let delayStatus = 'NORMAL' // < 10 mins
-      if (elapsedMinutes >= ord.target_prep_minutes) {
-        delayStatus = 'DELAYED' // Urgent alert
-      } else if (elapsedMinutes >= Math.floor(ord.target_prep_minutes * 0.65)) {
-        delayStatus = 'WARNING' // Approaching target
+      const delayThreshold = getSettingInt(db, 'kds_delay_minutes', ord.target_prep_minutes || 15)
+      let delayStatus = 'NORMAL'
+      if (elapsedMinutes >= delayThreshold) {
+        delayStatus = 'DELAYED'
+      } else if (elapsedMinutes >= Math.floor(delayThreshold * 0.65)) {
+        delayStatus = 'WARNING'
       }
 
       const totalItemsCount = items.reduce((acc, it) => acc + (it.quantity || 1), 0)
@@ -191,6 +201,7 @@ export const kitchenRepository = {
       enrichedOrders.push({
         ...ord,
         elapsedMinutes,
+        delayThreshold,
         delayStatus,
         totalItemsCount,
         readyItemsCount,
@@ -279,6 +290,24 @@ export const kitchenRepository = {
     return updateItemTx()
   },
 
+  acceptOrder: ({ orderId, userId }) => {
+    const db = getDb()
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
+    if (!order) throw new Error(`Order with ID "${orderId}" not found.`)
+    const now = new Date().toISOString()
+    db.prepare(`
+      UPDATE orders
+      SET kitchen_accepted_at = COALESCE(kitchen_accepted_at, ?),
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, orderId)
+    db.prepare(`
+      INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
+      VALUES (?, ?, ?, 'ACCEPTED', ?, 'Kitchen accepted ticket', ?)
+    `).run(uuid(), orderId, order.status, userId || null, now)
+    return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId)
+  },
+
   /**
    * Update full order status in Kitchen workflow
    * @param {object} params
@@ -289,7 +318,7 @@ export const kitchenRepository = {
    */
   updateOrderStatus: ({ orderId, status, userId, notes }) => {
     const db = getDb()
-    const allowed = ['CONFIRMED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED']
+    const allowed = ['CONFIRMED', 'PREPARING', 'READY', 'SERVED', 'COMPLETED', 'OUT_FOR_DELIVERY', 'DELIVERED']
     if (!allowed.includes(status)) {
       throw new Error(`Invalid status "${status}". Allowed: ${allowed.join(', ')}`)
     }
@@ -404,10 +433,12 @@ export const kitchenRepository = {
     `).all(targetBranchId)
 
     const nowMs = Date.now()
+    const globalDelay = getSettingInt(db, 'kds_delay_minutes', 15)
     let delayedCount = 0
     for (const o of activeOrders) {
       const elapsed = (nowMs - new Date(o.created_at).getTime()) / 60000
-      if (elapsed >= o.target_prep_minutes) delayedCount++
+      const threshold = globalDelay || o.target_prep_minutes
+      if (elapsed >= threshold) delayedCount++
     }
 
     return {

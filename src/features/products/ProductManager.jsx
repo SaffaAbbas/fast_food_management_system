@@ -1074,6 +1074,18 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
+  useEffect(() => {
+    const loadStations = async () => {
+      try {
+        if (window.api?.kitchen?.getStations) {
+          const st = await window.api.kitchen.getStations()
+          setKitchenStations(st || [])
+        }
+      } catch (e) {}
+    }
+    loadStations()
+  }, [])
+
   // Form Fields
   const [name, setName] = useState(product?.name || '')
   const [categoryId, setCategoryId] = useState(product?.category_id || categories[0]?.id || '')
@@ -1082,6 +1094,8 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
   const [description, setDescription] = useState(product?.description || '')
   const [imageUrl, setImageUrl] = useState(product?.image_url || null)
   const [prepTime, setPrepTime] = useState(product?.preparation_time_minutes || 15)
+  const [kitchenStationId, setKitchenStationId] = useState(product?.kitchen_station_id || '')
+  const [kitchenStations, setKitchenStations] = useState([])
   const [taxPercentage, setTaxPercentage] = useState(product?.tax_percentage || 5.0)
   const [trackInventory, setTrackInventory] = useState(Boolean(product?.track_inventory))
   const [isAvailable, setIsAvailable] = useState(
@@ -1266,6 +1280,7 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
         costPriceCents: Math.round(parseFloat(costPrice || 0) * 100),
         taxPercentage: parseFloat(taxPercentage) || 0.0,
         preparationTimeMinutes: parseInt(prepTime) || 15,
+        kitchenStationId: kitchenStationId || null,
         isAvailable,
         trackInventory,
         isFeatured,
@@ -1472,6 +1487,9 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
                   placeholder="Ingredients, recipe details, allergen warning, etc."
                   className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
                 />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Optional recipe: link ingredients in Recipes using this product. Sales then deduct stock from that recipe.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1490,6 +1508,19 @@ function ProductFormModal({ product, categories, onClose, onSaved }) {
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-orange-500"
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Kitchen Station</label>
+                  <select
+                    value={kitchenStationId}
+                    onChange={(e) => setKitchenStationId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
+                  >
+                    <option value="">Unassigned</option>
+                    {kitchenStations.map((st) => (
+                      <option key={st.id} value={st.id}>{st.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -2187,14 +2218,17 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
   )
   const [availableFrom, setAvailableFrom] = useState(combo?.available_from || '')
   const [availableTo, setAvailableTo] = useState(combo?.available_to || '')
+  const [availableFromTime, setAvailableFromTime] = useState(combo?.available_from_time || '')
+  const [availableToTime, setAvailableToTime] = useState(combo?.available_to_time || '')
   const [isAvailable, setIsAvailable] = useState(combo ? Boolean(combo.is_available) : true)
   const [selectedItems, setSelectedItems] = useState(
     combo?.items?.length
       ? combo.items.map((it) => ({
           productId: it.product_id || products.find((p) => p.name === it.product_name)?.id || products[0]?.id || '',
-          quantity: it.quantity || 1
+          quantity: it.quantity || 1,
+          choiceGroup: it.choice_group || ''
         }))
-      : [{ productId: products[0]?.id || '', quantity: 1 }]
+      : [{ productId: products[0]?.id || '', quantity: 1, choiceGroup: '' }]
   )
   const [imageUrl, setImageUrl] = useState(combo?.image_url || null)
   const [saving, setSaving] = useState(false)
@@ -2203,7 +2237,7 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
   const handleAddItemRow = () => {
     setSelectedItems((prev) => [
       ...prev,
-      { productId: products[0]?.id || '', quantity: 1 }
+      { productId: products[0]?.id || '', quantity: 1, choiceGroup: '' },
     ])
   }
 
@@ -2250,10 +2284,13 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
         isAvailable,
         availableFrom: availableFrom || undefined,
         availableTo: availableTo || undefined,
+        availableFromTime: availableFromTime || undefined,
+        availableToTime: availableToTime || undefined,
         imageUrl,
         items: selectedItems.map((it) => ({
           productId: it.productId,
-          quantity: parseInt(it.quantity) || 1
+          quantity: parseInt(it.quantity) || 1,
+          choiceGroup: it.choiceGroup?.trim() || null
         }))
       }
 
@@ -2353,6 +2390,24 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
               />
             </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">Happy-hour from</label>
+              <input
+                type="time"
+                value={availableFromTime}
+                onChange={(e) => setAvailableFromTime(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">Happy-hour until</label>
+              <input
+                type="time"
+                value={availableToTime}
+                onChange={(e) => setAvailableToTime(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
+              />
+            </div>
           </div>
 
           {/* Bundled Items Selector */}
@@ -2370,6 +2425,9 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
               </button>
             </div>
 
+            <p className="text-[10px] text-slate-500">
+              Leave choice group empty for a fixed item. Same group name (e.g. Drink) lets the cashier pick one of those products.
+            </p>
             <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
               {selectedItems.map((it, idx) => (
                 <div key={idx} className="flex items-center gap-2">
@@ -2385,7 +2443,7 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
                     ))}
                   </select>
 
-                  <div className="w-16">
+                  <div className="w-14">
                     <input
                       type="number"
                       min="1"
@@ -2394,6 +2452,13 @@ function ComboFormModal({ combo, products, onClose, onSaved }) {
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white font-mono text-center"
                     />
                   </div>
+                  <input
+                    type="text"
+                    value={it.choiceGroup || ''}
+                    onChange={(e) => handleUpdateItem(idx, 'choiceGroup', e.target.value)}
+                    placeholder="Choice group"
+                    className="w-28 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-[10px] text-white placeholder-slate-600"
+                  />
 
                   {selectedItems.length > 1 && (
                     <button

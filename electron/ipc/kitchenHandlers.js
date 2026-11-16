@@ -28,7 +28,20 @@ export function registerKitchenIpcHandlers() {
       status,
       userId: session?.id || null,
     })
-    broadcast('kitchen:order-update', { orderItemId, status })
+    broadcast('kitchen:order-update', { orderItemId, status, orderId: result?.order_id })
+    broadcast('pos:status-change', { orderId: result?.order_id, itemStatus: status })
+    return result
+  })
+
+  ipcMain.handle('kitchen:accept-order', async (_event, { orderId }) => {
+    assertPermission('kitchen:view')
+    const session = authRepository.getCurrentSession()
+    const result = kitchenRepository.acceptOrder({
+      orderId,
+      userId: session?.id || null,
+    })
+    broadcast('kitchen:order-update', { orderId, status: 'ACCEPTED' })
+    broadcast('pos:status-change', { orderId, status: 'ACCEPTED' })
     return result
   })
 

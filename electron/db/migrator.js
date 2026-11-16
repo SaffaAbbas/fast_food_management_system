@@ -10,6 +10,13 @@ import { migration009 } from './migrations/009_refunds_financial_integrity.js'
 import { migration010 } from './migrations/010_sync_outbox_and_permissions.js'
 import { migration011 } from './migrations/011_media_and_report_columns.js'
 import { migration012 } from './migrations/012_roles_image_url.js'
+import { migration013 } from './migrations/013_role_permission_matrix.js'
+import { migration014 } from './migrations/014_combo_choices_and_table_states.js'
+import { migration015 } from './migrations/015_kds_crm_delivery_ops.js'
+import { migration016 } from './migrations/016_inventory_recipe_ops.js'
+import { migration017 } from './migrations/017_ops_finance_reservations.js'
+import { migration018 } from './migrations/018_promotions_ops.js'
+import { migration019 } from './migrations/019_audit_security.js'
 
 const MIGRATIONS = [
   migration001,
@@ -24,6 +31,13 @@ const MIGRATIONS = [
   migration010,
   migration011,
   migration012,
+  migration013,
+  migration014,
+  migration015,
+  migration016,
+  migration017,
+  migration018,
+  migration019,
 ]
 
 /**

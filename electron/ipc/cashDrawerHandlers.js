@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { cashDrawerRepository } from '../db/repositories/cashDrawerRepository.js'
-import { requireAnyPermission, requireSession, getActiveBranchId } from './authGuard.js'
+import { requireAnyPermission, requirePermission, requireSession, getActiveBranchId } from './authGuard.js'
+import { getDb } from '../db/index.js'
 
 export function registerCashDrawerIpcHandlers() {
   ipcMain.handle('cash:get-current-session', async (_event, params = {}) => {
@@ -31,7 +32,19 @@ export function registerCashDrawerIpcHandlers() {
   })
 
   ipcMain.handle('cash:close-session', async (_event, data) => {
-    requireAnyPermission(['cash:manage', 'pos:create_order'])
+    const session = requireAnyPermission(['cash:manage', 'pos:create_order'])
+    const details = cashDrawerRepository.getXReport(data.sessionId)
+    const expected = details?.metrics?.expectedCashCents || 0
+    const counted = parseInt(data.countedCashCents, 10) || 0
+    const variance = Math.abs(counted - expected)
+    const threshold = parseInt(
+      getDb().prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'cash_variance_approval_cents'").get()?.setting_value || '0',
+      10
+    )
+    if (variance > threshold) {
+      requireAnyPermission(['staff:manage', 'settings:manage'])
+      data.managerApprovalUserId = data.managerApprovalUserId || session.id
+    }
     return cashDrawerRepository.closeSession(data)
   })
 

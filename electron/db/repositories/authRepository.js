@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { getDb } from '../index.js'
+import { sanitizeDetails } from '../auditLog.js'
 
 let currentSession = null
 
@@ -335,7 +336,7 @@ function logAudit(branchId, action, entityType, entityId, details) {
       action,
       entityType,
       entityId,
-      JSON.stringify(details),
+      JSON.stringify(sanitizeDetails(details || {})),
       new Date().toISOString()
     )
   } catch (e) {
