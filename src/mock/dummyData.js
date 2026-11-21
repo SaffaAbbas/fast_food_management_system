@@ -35,10 +35,15 @@ export const INITIAL_USERS = [
 
 export const INITIAL_ROLES = [
   { id: 'role-super_admin', code: 'super_admin', name: 'Super Administrator', description: 'Full system and branch access' },
-  { id: 'role-manager', code: 'manager', name: 'Restaurant Manager', description: 'Orders, inventory, staff, discounts and reports' },
+  { id: 'role-branch_admin', code: 'branch_admin', name: 'Branch Admin / Owner', description: 'Full branch management' },
+  { id: 'role-manager', code: 'manager', name: 'Manager', description: 'Orders, inventory, staff, and reports' },
   { id: 'role-cashier', code: 'cashier', name: 'Cashier', description: 'POS order entry, payments and receipts' },
   { id: 'role-waiter', code: 'waiter', name: 'Waiter', description: 'Dine-in table orders and customer service' },
-  { id: 'role-kitchen', code: 'kitchen_staff', name: 'Kitchen Staff', description: 'Kitchen display screen and order preparation' },
+  { id: 'role-kitchen', code: 'kitchen_staff', name: 'Kitchen Staff', description: 'Kitchen display and preparation' },
+  { id: 'role-inventory', code: 'inventory_officer', name: 'Inventory Officer', description: 'Inventory, purchases, and stock' },
+  { id: 'role-accountant', code: 'accountant', name: 'Accountant', description: 'Expenses and financial reports' },
+  { id: 'role-rider', code: 'delivery_rider', name: 'Delivery Rider', description: 'Assigned deliveries' },
+  { id: 'role-reception', code: 'receptionist', name: 'Reception / Reservation', description: 'Reservations, customers, and tables' },
 ]
 
 export const INITIAL_STATIONS = [

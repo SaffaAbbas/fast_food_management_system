@@ -29,7 +29,7 @@ function loadBundledJson() {
   }
 }
 
-function loadDotEnv() {
+export function loadDotEnv() {
   loadBundledJson()
   const candidates = [
     process.env.APP_ROOT && path.join(process.env.APP_ROOT, '.env'),

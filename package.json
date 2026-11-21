@@ -53,7 +53,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "Restaurant-OS-Setup-${version}.${ext}"
@@ -67,7 +69,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Restaurant OS",
       "uninstallDisplayName": "Restaurant OS",
-      "installerLanguages": ["en_US"]
+      "installerLanguages": [
+        "en_US"
+      ]
     },
     "extraResources": [
       {
@@ -84,6 +88,7 @@
     "@supabase/supabase-js": "^2.118.0",
     "better-sqlite3": "^11.8.1",
     "lucide-react": "^0.475.0",
+    "nodemailer": "^10.6.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "ws": "^8.22.1"

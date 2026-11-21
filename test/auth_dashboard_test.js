@@ -1,7 +1,8 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { initDatabase, closeDatabase, getDb } from '../electron/db/index.js'
-import { authRepository, hashSecret, verifySecret } from '../electron/db/repositories/authRepository.js'
+import { authRepository, hashSecret, verifySecret, setSignupMailer } from '../electron/db/repositories/authRepository.js'
+import { requireSession } from '../electron/ipc/authGuard.js'
 import { dashboardRepository } from '../electron/db/repositories/dashboardRepository.js'
 import { orderRepository } from '../electron/db/repositories/orderRepository.js'
 
@@ -124,6 +125,103 @@ async function runAuthAndDashboardTests() {
     console.log(`✓ Repeat setup blocked: ${e.message}`)
   }
   if (!setupBlocked) throw new Error('Initial setup was allowed after users already exist!')
+
+  console.log('\n--- Test 9: Email signup, OTP, session token, logout, and expiry ---')
+  let mailed = null
+  setSignupMailer(async (message) => {
+    mailed = message
+  })
+  const cashierRole = db.prepare("SELECT id FROM roles WHERE code = 'cashier'").get()
+  let rejected = false
+  try {
+    await authRepository.requestSignup({
+      username: 'ab',
+      email: 'not-an-email',
+      password: 'short',
+      confirmPassword: 'short',
+      roleId: cashierRole.id,
+    })
+  } catch (err) {
+    rejected = true
+    console.log(`✓ Signup validation rejected bad input: ${err.message}`)
+  }
+  if (!rejected) throw new Error('Invalid signup was accepted')
+
+  const signup = await authRepository.requestSignup({
+    username: 'NewCashier',
+    email: 'new.cashier@example.com',
+    password: 'cashier123',
+    confirmPassword: 'cashier123',
+    roleId: cashierRole.id,
+  })
+  if (!signup.delivered || !mailed?.code) throw new Error('Signup did not send a verification code')
+  console.log(`✓ OTP prepared for ${signup.email}`)
+
+  let wrongOtp = false
+  try {
+    authRepository.verifySignupOtp({ email: signup.email, otp: mailed.code === '000000' ? '111111' : '000000' })
+  } catch (err) {
+    wrongOtp = true
+  }
+  if (!wrongOtp) throw new Error('Wrong OTP was accepted')
+
+  const verified = authRepository.verifySignupOtp({ email: signup.email, otp: mailed.code })
+  if (verified.username !== 'newcashier') throw new Error('Verified username was not normalized')
+  if (authRepository.getCurrentSession()) throw new Error('OTP verification should not sign the user in')
+  console.log('✓ OTP verified and account created without a session')
+
+  const signedIn = authRepository.loginWithPassword('newcashier', 'cashier123')
+  if (!signedIn.token || !signedIn.expiresAt) throw new Error('Login did not issue an expiring token')
+  if (signedIn.roleCode !== 'cashier') throw new Error('Signup role was not applied')
+  const restored = authRepository.getCurrentSession(signedIn.token)
+  if (restored?.id !== signedIn.id) throw new Error('Token did not restore the session')
+  console.log(`✓ Session token expires at ${signedIn.expiresAt}`)
+
+  db.prepare('UPDATE auth_sessions SET expires_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', signedIn.sessionId)
+  let expired = false
+  try {
+    requireSession()
+  } catch (err) {
+    expired = /session expired/i.test(err.message)
+    console.log(`✓ Expired token rejected: ${err.message}`)
+  }
+  if (!expired) throw new Error('Expired session was still accepted')
+
+  const again = authRepository.loginWithPassword('newcashier', 'cashier123')
+  authRepository.logout(again.token)
+  if (authRepository.getCurrentSession(again.token)) throw new Error('Logged-out token was still accepted')
+  console.log('✓ Logout revoked the session token')
+
+  console.log('\n--- Test 10: Password signup without OTP ---')
+  const waiterRole = db.prepare("SELECT id FROM roles WHERE code = 'waiter'").get()
+  const created = authRepository.signup({
+    username: 'FloorWaiter',
+    email: 'floor.waiter@example.com',
+    password: 'waiter123',
+    confirmPassword: 'waiter123',
+    roleId: waiterRole.id,
+  })
+  if (created.username !== 'floorwaiter') throw new Error('Direct signup did not create the username')
+  if (authRepository.getCurrentSession()) throw new Error('Direct signup must not sign the user in')
+  const waiterSession = authRepository.loginWithPassword('floorwaiter', 'waiter123')
+  if (waiterSession.roleCode !== 'waiter') throw new Error('Direct signup role was not applied')
+  authRepository.logout(waiterSession.token)
+  console.log('✓ Password signup created the account and login worked')
+
+  let duplicateEmail = false
+  try {
+    authRepository.signup({
+      username: 'AnotherWaiter',
+      email: 'Floor.Waiter@example.com',
+      password: 'waiter123',
+      confirmPassword: 'waiter123',
+      roleId: waiterRole.id,
+    })
+  } catch (err) {
+    duplicateEmail = err.message === 'Email already registered.'
+    console.log(`✓ Duplicate email rejected: ${err.message}`)
+  }
+  if (!duplicateEmail) throw new Error('Duplicate email was not rejected')
 
   // Clean up
   closeDatabase()

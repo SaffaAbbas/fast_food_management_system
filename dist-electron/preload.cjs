@@ -29,6 +29,13 @@ const ALLOWED_INVOKE_CHANNELS = /* @__PURE__ */ new Set([
   IPC_CHANNELS.AUTH_LOGOUT,
   IPC_CHANNELS.AUTH_CURRENT_USER,
   "auth:get-login-users",
+  "auth:list-roles",
+  "auth:mail-status",
+  "auth:save-mail-config",
+  "auth:signup",
+  "auth:request-signup",
+  "auth:resend-signup-otp",
+  "auth:verify-signup",
   "auth:needs-setup",
   "auth:complete-setup",
   "dashboard:get-metrics",
@@ -244,9 +251,19 @@ const api = {
   // Authentication & RBAC API
   auth: {
     login: (credentials) => electron.ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGIN, credentials),
-    logout: () => electron.ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
-    getCurrentUser: () => electron.ipcRenderer.invoke(IPC_CHANNELS.AUTH_CURRENT_USER),
+    logout: (token) => electron.ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT, typeof token === "string" ? token : void 0),
+    getCurrentUser: (token) => electron.ipcRenderer.invoke(
+      IPC_CHANNELS.AUTH_CURRENT_USER,
+      typeof token === "string" ? token : void 0
+    ),
     getLoginUsers: () => electron.ipcRenderer.invoke("auth:get-login-users"),
+    listRoles: () => electron.ipcRenderer.invoke("auth:list-roles"),
+    mailStatus: () => electron.ipcRenderer.invoke("auth:mail-status"),
+    saveMailConfig: (payload) => electron.ipcRenderer.invoke("auth:save-mail-config", payload),
+    signup: (payload) => electron.ipcRenderer.invoke("auth:signup", payload),
+    requestSignup: (payload) => electron.ipcRenderer.invoke("auth:request-signup", payload),
+    resendSignupOtp: (payload) => electron.ipcRenderer.invoke("auth:resend-signup-otp", payload),
+    verifySignup: (payload) => electron.ipcRenderer.invoke("auth:verify-signup", payload),
     needsSetup: () => electron.ipcRenderer.invoke("auth:needs-setup"),
     completeSetup: (payload) => electron.ipcRenderer.invoke("auth:complete-setup", payload)
   },

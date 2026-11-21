@@ -74,14 +74,14 @@ export function seedDatabase(db, options = {}) {
         user: 'waiter1',
         name: 'Jordan Waiter',
         pin: '1111',
-        pass: null,
+        pass: 'waiter123',
       },
       {
         roleCode: 'kitchen_staff',
         user: 'chef1',
         name: 'Chef Gordon',
         pin: '2222',
-        pass: null,
+        pass: 'chef123',
       },
     ] : []
 

@@ -1,10 +1,12 @@
-import { ipcMain, dialog, BrowserWindow, app, powerMonitor, net, shell } from "electron";
+import { ipcMain, dialog, BrowserWindow, app, powerMonitor, net as net$1, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import Database from "better-sqlite3";
 import { createRequire } from "node:module";
 import crypto$1 from "node:crypto";
+import net from "node:net";
+import tls from "node:tls";
 import { WebSocket as WebSocket$1 } from "ws";
 import os from "node:os";
 const IPC_CHANNELS = {
@@ -1062,7 +1064,7 @@ const migration010 = {
     `).run(now);
   }
 };
-function addColumn$2(db, table, column, definition) {
+function addColumn$3(db, table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -1071,6 +1073,29 @@ function addColumn$2(db, table, column, definition) {
 const migration011 = {
   version: 11,
   name: "media_image_columns",
+  up: (db) => {
+    addColumn$3(db, "products", "image_url", "TEXT");
+    addColumn$3(db, "categories", "image_url", "TEXT");
+    addColumn$3(db, "combos", "image_url", "TEXT");
+    addColumn$3(db, "customers", "image_url", "TEXT");
+    addColumn$3(db, "employees", "image_url", "TEXT");
+    addColumn$3(db, "users", "image_url", "TEXT");
+    addColumn$3(db, "recipes", "image_url", "TEXT");
+    addColumn$3(db, "riders", "image_url", "TEXT");
+    addColumn$3(db, "inventory_items", "image_url", "TEXT");
+    addColumn$3(db, "branches", "logo_url", "TEXT");
+    addColumn$3(db, "roles", "image_url", "TEXT");
+  }
+};
+function addColumn$2(db, table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+const migration012 = {
+  version: 12,
+  name: "roles_and_media_columns_guard",
   up: (db) => {
     addColumn$2(db, "products", "image_url", "TEXT");
     addColumn$2(db, "categories", "image_url", "TEXT");
@@ -1083,29 +1108,6 @@ const migration011 = {
     addColumn$2(db, "inventory_items", "image_url", "TEXT");
     addColumn$2(db, "branches", "logo_url", "TEXT");
     addColumn$2(db, "roles", "image_url", "TEXT");
-  }
-};
-function addColumn$1(db, table, column, definition) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
-  if (!cols.includes(column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-  }
-}
-const migration012 = {
-  version: 12,
-  name: "roles_and_media_columns_guard",
-  up: (db) => {
-    addColumn$1(db, "products", "image_url", "TEXT");
-    addColumn$1(db, "categories", "image_url", "TEXT");
-    addColumn$1(db, "combos", "image_url", "TEXT");
-    addColumn$1(db, "customers", "image_url", "TEXT");
-    addColumn$1(db, "employees", "image_url", "TEXT");
-    addColumn$1(db, "users", "image_url", "TEXT");
-    addColumn$1(db, "recipes", "image_url", "TEXT");
-    addColumn$1(db, "riders", "image_url", "TEXT");
-    addColumn$1(db, "inventory_items", "image_url", "TEXT");
-    addColumn$1(db, "branches", "logo_url", "TEXT");
-    addColumn$1(db, "roles", "image_url", "TEXT");
   }
 };
 const ROLE_DEFS = [
@@ -1269,7 +1271,7 @@ function applyRoleMatrix(db) {
   }
   return { roleIds, permIds };
 }
-function addColumn(db, table, column, definition) {
+function addColumn$1(db, table, column, definition) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -1279,7 +1281,7 @@ const migration013 = {
   version: 13,
   name: "role_permission_matrix",
   up: (db) => {
-    addColumn(db, "riders", "user_id", "TEXT");
+    addColumn$1(db, "riders", "user_id", "TEXT");
     applyRoleMatrix(db);
   }
 };
@@ -1677,6 +1679,68 @@ const migration019 = {
     }
   }
 };
+function addColumn(db, table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+function hashSecret$1(secret) {
+  const salt = crypto$1.randomBytes(16).toString("hex");
+  const derived = crypto$1.scryptSync(String(secret), salt, 64).toString("hex");
+  return `${salt}:${derived}`;
+}
+const migration020 = {
+  version: 20,
+  name: "signup_otp_and_sessions",
+  up: (db) => {
+    addColumn(db, "users", "email", "TEXT");
+    addColumn(db, "users", "email_verified", "INTEGER DEFAULT 0");
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower
+        ON users(lower(email))
+        WHERE email IS NOT NULL AND trim(email) != '';
+
+      CREATE TABLE IF NOT EXISTS signup_otps (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role_id TEXT NOT NULL,
+        otp_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        resend_available_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS auth_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        method TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+    `);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const demoPasswords = [
+      ["waiter1", "waiter123"],
+      ["chef1", "chef123"]
+    ];
+    for (const [username, password] of demoPasswords) {
+      const row = db.prepare("SELECT id, password_hash FROM users WHERE username = ?").get(username);
+      if (row && !row.password_hash) {
+        db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(hashSecret$1(password), now, row.id);
+      }
+    }
+  }
+};
 const MIGRATIONS = [
   migration001,
   migration002,
@@ -1696,7 +1760,8 @@ const MIGRATIONS = [
   migration016,
   migration017,
   migration018,
-  migration019
+  migration019,
+  migration020
 ];
 function runMigrations(db) {
   db.exec(`
@@ -1799,7 +1864,328 @@ function redactAuditRow(row, { fullAccess = false } = {}) {
   copy.details_json = details ? JSON.stringify(details) : null;
   return copy;
 }
+const settingsRepository = {
+  getAll: () => {
+    const db = getDb();
+    const rows = db.prepare("SELECT setting_key, setting_value, category, description, updated_at FROM system_settings").all();
+    const settings = {};
+    for (const r of rows) {
+      if (r.setting_key === "smtp_pass") continue;
+      settings[r.setting_key] = r.setting_value;
+    }
+    return settings;
+  },
+  get: (key) => {
+    const db = getDb();
+    const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?").get(key);
+    return row ? row.setting_value : null;
+  },
+  set: (key, value, category = "GENERAL") => {
+    const db = getDb();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    db.prepare(`
+      INSERT INTO system_settings (setting_key, setting_value, category, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(setting_key) DO UPDATE SET
+        setting_value = excluded.setting_value,
+        category = excluded.category,
+        updated_at = excluded.updated_at
+    `).run(key, value, category, now);
+    return true;
+  }
+};
+function applyEnvPair(name, value) {
+  if (!name || value == null || value === "") return;
+  if (process.env[name] == null || process.env[name] === "") {
+    process.env[name] = String(value);
+  }
+}
+function loadBundledJson() {
+  const candidates = [
+    process.resourcesPath && path.join(process.resourcesPath, "sync-config.json"),
+    process.env.APP_ROOT && path.join(process.env.APP_ROOT, "build", "sync-config.json"),
+    path.join(process.cwd(), "build", "sync-config.json")
+  ].filter(Boolean);
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      applyEnvPair("SUPABASE_URL", parsed.SUPABASE_URL || parsed.url);
+      applyEnvPair("SUPABASE_KEY", parsed.SUPABASE_KEY || parsed.key);
+      break;
+    } catch {
+    }
+  }
+}
+function loadDotEnv() {
+  loadBundledJson();
+  const candidates = [
+    process.env.APP_ROOT && path.join(process.env.APP_ROOT, ".env"),
+    path.join(process.cwd(), ".env"),
+    process.resourcesPath && path.join(process.resourcesPath, ".env")
+  ].filter(Boolean);
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const text = fs.readFileSync(file, "utf8");
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq < 1) continue;
+        const name = trimmed.slice(0, eq).trim();
+        let value = trimmed.slice(eq + 1).trim();
+        if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        }
+        applyEnvPair(name, value);
+      }
+      break;
+    } catch {
+    }
+  }
+}
+function ensureCloudSyncReady() {
+  loadDotEnv();
+  const url = (getMeta("supabase_url", "") || process.env.SUPABASE_URL || "").trim();
+  const key = (getMeta("supabase_key", "") || process.env.SUPABASE_KEY || "").trim();
+  if (!url || !key) return getSyncConfig();
+  if (getMeta("cloud_sync_disabled_by_user") === "1") return getSyncConfig();
+  setMeta("cloud_sync_enabled", "1");
+  if (!getMeta("supabase_url")) setMeta("supabase_url", url);
+  if (!getMeta("supabase_key")) setMeta("supabase_key", key);
+  return getSyncConfig();
+}
+function nowIso() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function getMeta(key, fallback = null) {
+  const db = getDb();
+  const row = db.prepare("SELECT setting_value FROM sync_metadata WHERE setting_key = ?").get(key);
+  return row ? row.setting_value : fallback;
+}
+function setMeta(key, value) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO sync_metadata (setting_key, setting_value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
+  `).run(key, value == null ? null : String(value), nowIso());
+}
+function getDeviceId() {
+  let id = getMeta("device_id");
+  if (!id) {
+    id = crypto$1.randomUUID();
+    setMeta("device_id", id);
+  }
+  return id;
+}
+function getSyncConfig() {
+  loadDotEnv();
+  const enabled = getMeta("cloud_sync_enabled", "0") === "1";
+  const url = (getMeta("supabase_url", "") || process.env.SUPABASE_URL || "").trim();
+  const key = (getMeta("supabase_key", "") || process.env.SUPABASE_KEY || "").trim();
+  return {
+    enabled,
+    url,
+    key,
+    hasKey: Boolean(key),
+    deviceId: getDeviceId(),
+    lastSyncedAt: getMeta("last_synced_at"),
+    lastPullAt: getMeta("last_pull_at"),
+    lastError: getMeta("last_error")
+  };
+}
+function saveSyncConfig({ enabled, url, key }) {
+  if (typeof enabled === "boolean") {
+    setMeta("cloud_sync_enabled", enabled ? "1" : "0");
+    setMeta("cloud_sync_disabled_by_user", enabled ? "0" : "1");
+  }
+  if (url !== void 0) setMeta("supabase_url", (url || "").trim());
+  if (key !== void 0 && key !== "") setMeta("supabase_key", key.trim());
+  return getSyncConfig();
+}
+function countOutbox(status = "PENDING") {
+  const db = getDb();
+  const row = db.prepare("SELECT COUNT(*) AS n FROM sync_outbox WHERE status = ?").get(status);
+  return (row == null ? void 0 : row.n) || 0;
+}
+function readStored(key) {
+  try {
+    return settingsRepository.get(key) || "";
+  } catch {
+    return "";
+  }
+}
+function getSmtpConfig() {
+  loadDotEnv();
+  const host = String(process.env.SMTP_HOST || readStored("smtp_host") || "").trim();
+  const user = String(process.env.SMTP_USER || readStored("smtp_user") || "").trim();
+  const pass = String(process.env.SMTP_PASS || readStored("smtp_pass") || "");
+  const from = String(process.env.SMTP_FROM || readStored("smtp_from") || user || "").trim();
+  const port = Number(process.env.SMTP_PORT || readStored("smtp_port") || 587);
+  if (!host || !user || !pass || !from) return null;
+  return { host, user, pass, from, port };
+}
+function getPublicMailStatus() {
+  const cfg = getSmtpConfig();
+  if (!cfg) return { configured: false, host: "", port: 587, user: "", from: "" };
+  return { configured: true, host: cfg.host, port: cfg.port, user: cfg.user, from: cfg.from };
+}
+function createReader(socket) {
+  let buffer = "";
+  let waiter = null;
+  const fail = (err) => {
+    if (!waiter) return;
+    const current = waiter;
+    waiter = null;
+    current.reject(err);
+  };
+  const onData = (chunk) => {
+    buffer += chunk.toString("utf8");
+    flush();
+  };
+  const onError = fail;
+  const onClose = () => fail(new Error("Email server closed the connection."));
+  socket.on("data", onData);
+  socket.on("error", onError);
+  socket.on("close", onClose);
+  function flush() {
+    if (!waiter) return;
+    const lines = buffer.split(/\r\n/);
+    const partial = buffer.endsWith("\r\n") ? "" : lines.pop() ?? "";
+    if (!lines.length) return;
+    const last = lines[lines.length - 1];
+    if (!/^\d{3} /.test(last)) return;
+    buffer = partial;
+    const text = lines.join("\n");
+    const current = waiter;
+    waiter = null;
+    current.resolve({ code: Number(last.slice(0, 3)), text });
+  }
+  return {
+    read() {
+      return new Promise((resolve, reject) => {
+        waiter = { resolve, reject };
+        flush();
+      });
+    },
+    stop() {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    }
+  };
+}
+function expectCode(response, allowed, step) {
+  if (!allowed.includes(response.code)) {
+    throw new Error(`${step} failed (${response.code}). ${response.text}`);
+  }
+}
+async function sendCommand(socket, reader, line, allowed, step) {
+  socket.write(`${line}\r
+`);
+  const response = await reader.read();
+  expectCode(response, allowed, step);
+  return response;
+}
+function upgradeTls(socket, host) {
+  return new Promise((resolve, reject) => {
+    const secure = tls.connect({ socket, servername: host });
+    secure.once("secureConnect", () => resolve(secure));
+    secure.once("error", reject);
+  });
+}
+async function smtpSend(cfg, { to, subject, text }) {
+  const secureFromStart = cfg.port === 465;
+  const socket = await new Promise((resolve, reject) => {
+    const connect = secureFromStart ? tls.connect : net.connect;
+    const options = secureFromStart ? { host: cfg.host, port: cfg.port, servername: cfg.host } : { host: cfg.host, port: cfg.port };
+    const client = connect(options, () => resolve(client));
+    client.once("error", reject);
+    client.setTimeout(12e3, () => {
+      client.destroy(new Error("Email server timed out."));
+    });
+  });
+  let active = socket;
+  let reader = createReader(active);
+  try {
+    const greeting = await reader.read();
+    expectCode(greeting, [220], "Connect");
+    await sendCommand(active, reader, "EHLO restaurant-os", [250], "Greeting");
+    if (!secureFromStart) {
+      await sendCommand(active, reader, "STARTTLS", [220], "Secure connection");
+      reader.stop();
+      active = await upgradeTls(active, cfg.host);
+      active.setTimeout(12e3, () => active.destroy(new Error("Email server timed out.")));
+      reader = createReader(active);
+      await sendCommand(active, reader, "EHLO restaurant-os", [250], "Secure greeting");
+    }
+    await sendCommand(active, reader, "AUTH LOGIN", [334], "Sign in to email server");
+    await sendCommand(active, reader, Buffer.from(cfg.user).toString("base64"), [334], "Email username");
+    await sendCommand(active, reader, Buffer.from(cfg.pass).toString("base64"), [235], "Email password");
+    await sendCommand(active, reader, `MAIL FROM:<${cfg.from}>`, [250], "Sender");
+    await sendCommand(active, reader, `RCPT TO:<${to}>`, [250, 251], "Recipient");
+    await sendCommand(active, reader, "DATA", [354], "Message");
+    const body = String(text).replace(/\r?\n/g, "\r\n");
+    const stuffed = body.split("\r\n").map((line) => line.startsWith(".") ? `.${line}` : line).join("\r\n");
+    const payload = [
+      `From: ${cfg.from}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      stuffed,
+      "."
+    ].join("\r\n");
+    active.write(`${payload}\r
+`);
+    const accepted = await reader.read();
+    expectCode(accepted, [250], "Deliver message");
+    active.write("QUIT\r\n");
+  } finally {
+    active.destroy();
+  }
+}
+async function sendSignupOtpEmail({ to, code, username }) {
+  const cfg = getSmtpConfig();
+  if (!cfg) {
+    throw new Error("Email is not configured. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM to the .env file, then restart the app.");
+  }
+  const safeName = String(username || "there").replace(/[^\w .@-]/g, "");
+  const text = [
+    `Hello ${safeName},`,
+    "",
+    `Your Restaurant OS verification code is ${code}.`,
+    "It expires in 10 minutes.",
+    "",
+    "If you did not request this, you can ignore this email."
+  ].join("\n");
+  try {
+    await smtpSend(cfg, { to, subject: "Your Restaurant OS verification code", text });
+  } catch (err) {
+    const detail = (err == null ? void 0 : err.message) ? ` ${err.message}` : "";
+    throw new Error(`Could not send the verification email.${detail}`);
+  }
+}
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
+const SESSION_TTL_MS = 8 * 60 * 60 * 1e3;
+const OTP_TTL_MS = 10 * 60 * 1e3;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_MS = 30 * 1e3;
+const USER_SQL = `
+  SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name, u.email,
+         u.password_hash, u.pin_hash, u.is_active,
+         COALESCE(r.code, 'cashier') as role_code,
+         COALESCE(r.name, 'Staff Member') as role_name
+  FROM users u
+  LEFT JOIN roles r ON u.role_id = r.id
+`;
 let currentSession = null;
+let lastSessionState = "none";
+let sendSignupOtp = sendSignupOtpEmail;
 function hashSecret(secret) {
   if (!secret) return null;
   const salt = crypto$1.randomBytes(16).toString("hex");
@@ -1814,72 +2200,78 @@ function verifySecret(secret, storedHash) {
     const derivedKey = crypto$1.scryptSync(secret, salt, 64);
     if (keyBuffer.length !== derivedKey.length) return false;
     return crypto$1.timingSafeEqual(keyBuffer, derivedKey);
-  } catch (err) {
+  } catch {
     return false;
   }
 }
+function hashToken(token) {
+  return crypto$1.createHash("sha256").update(String(token)).digest("hex");
+}
+function generateOtp() {
+  return String(crypto$1.randomInt(0, 1e6)).padStart(6, "0");
+}
 const authRepository = {
-  /**
-   * Get active user session
-   */
-  getCurrentSession: () => {
-    return currentSession;
+  getLastSessionState: () => lastSessionState,
+  getCurrentSession: (token) => {
+    const explicitEmpty = token === null || token === "";
+    return resolveSession(explicitEmpty ? "" : token, { allowMemory: !explicitEmpty });
   },
-  /**
-   * Clear active user session (Logout)
-   */
-  logout: () => {
-    if (currentSession) {
-      const db = getDb();
-      const now = (/* @__PURE__ */ new Date()).toISOString();
+  logout: (token) => {
+    const db = getDb();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const raw = typeof token === "string" && token ? token : currentSession == null ? void 0 : currentSession.token;
+    if (raw) {
       db.prepare(`
-        INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
-        VALUES (?, ?, ?, 'LOGOUT', 'USER', ?, ?, ?)
-      `).run(crypto$1.randomUUID(), currentSession.branchId, currentSession.id, currentSession.id, JSON.stringify({ username: currentSession.username }), now);
+        UPDATE auth_sessions
+        SET revoked_at = ?
+        WHERE token_hash = ? AND revoked_at IS NULL
+      `).run(now, hashToken(raw));
     }
-    currentSession = null;
+    const actor = currentSession && (!raw || currentSession.token === raw) ? currentSession : null;
+    if (actor) {
+      try {
+        db.prepare(`
+          INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
+          VALUES (?, ?, ?, 'LOGOUT', 'USER', ?, ?, ?)
+        `).run(
+          crypto$1.randomUUID(),
+          actor.branchId || null,
+          actor.id,
+          actor.id,
+          JSON.stringify({ username: actor.username }),
+          now
+        );
+      } catch (err) {
+        console.error("[Auth] Failed to record logout:", err.message);
+      }
+    }
+    if (!currentSession || !raw || currentSession.token === raw) {
+      currentSession = null;
+      lastSessionState = "none";
+    }
     return { success: true };
   },
-  /**
-   * Authenticate user via username and password
-   */
   loginWithPassword: (username, password) => {
     const db = getDb();
-    (/* @__PURE__ */ new Date()).toISOString();
     const user = db.prepare(`
-      SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name,
-             u.password_hash, u.pin_hash, u.is_active,
-             COALESCE(r.code, 'cashier') as role_code,
-             COALESCE(r.name, 'Staff Member') as role_name
-      FROM users u
-      LEFT JOIN roles r ON u.role_id = r.id
+      ${USER_SQL}
       WHERE LOWER(u.username) = LOWER(?) AND u.is_active = 1
-    `).get(username);
-    if (!user) {
-      logAudit$8(null, "FAILED_LOGIN", "USER", null, { reason: "User not found", username });
-      throw new Error("Invalid username or credentials.");
+    `).get(String(username || "").trim());
+    if (!user || !user.password_hash || !verifySecret(password, user.password_hash)) {
+      logAudit$8((user == null ? void 0 : user.branch_id) || null, "FAILED_LOGIN", "USER", (user == null ? void 0 : user.id) || null, {
+        reason: "Password mismatch",
+        username: String(username || "").trim()
+      });
+      throw new Error("Invalid username or password.");
     }
-    const isValid = verifySecret(password, user.password_hash);
-    if (!isValid) {
-      logAudit$8(user.branch_id, "FAILED_LOGIN", "USER", user.id, { reason: "Password mismatch", username });
-      throw new Error("Invalid password.");
-    }
-    return createSessionForUser(user, "PASSWORD");
+    return issueSession(user, "PASSWORD");
   },
   /**
-   * Quick-PIN login (fast cashier / waiter authentication)
+   * Kept for existing staff PIN checks and tests. The sign-in screen does not use it.
    */
   loginWithPin: (pin, userId = null, username = null) => {
     const db = getDb();
-    let query = `
-      SELECT u.id, u.branch_id, u.role_id, u.username, u.display_name,
-             u.password_hash, u.pin_hash, u.is_active,
-             COALESCE(r.code, 'cashier') as role_code,
-             COALESCE(r.name, 'Staff Member') as role_name
-      FROM users u
-      LEFT JOIN roles r ON u.role_id = r.id
-      WHERE u.is_active = 1
-    `;
+    let query = `${USER_SQL} WHERE u.is_active = 1`;
     const params = [];
     if (userId || username) {
       const cleanUser = (userId || "").replace(/^usr-/, "");
@@ -1898,11 +2290,8 @@ const authRepository = {
       logAudit$8(null, "FAILED_LOGIN", "USER", null, { reason: "Invalid PIN" });
       throw new Error("Invalid PIN code.");
     }
-    return createSessionForUser(authenticatedUser, "PIN");
+    return issueSession(authenticatedUser, "PIN");
   },
-  /**
-   * Get all active users with their roles (for switch user / fast PIN login UI)
-   */
   getLoginUsers: () => {
     const db = getDb();
     return db.prepare(`
@@ -1915,17 +2304,214 @@ const authRepository = {
       ORDER BY u.display_name ASC
     `).all();
   },
-  /**
-   * Check if a specific permission is granted to current user
-   */
-  hasPermission: (permissionCode) => {
-    if (!currentSession) return false;
-    if (currentSession.roleCode === "super_admin") return true;
-    return currentSession.permissions.includes(permissionCode);
+  listRoles: () => {
+    const db = getDb();
+    return db.prepare(`
+      SELECT id, code, name, description
+      FROM roles
+      ORDER BY name ASC
+    `).all();
   },
-  /**
-   * Create a new staff user with hashed credentials
-   */
+  getMailStatus: () => getPublicMailStatus(),
+  saveMailConfig: ({ host, port, user, pass, from }) => {
+    const cleanHost = String(host || "").trim();
+    const cleanUser = String(user || "").trim();
+    const cleanFrom = String(from || "").trim();
+    const cleanPort = Number(port || 587);
+    const existingPass = settingsRepository.get("smtp_pass") || "";
+    const cleanPass = String(pass || "") || existingPass;
+    if (!cleanHost || !cleanUser || !cleanFrom || !cleanPass) {
+      throw new Error("Email server host, username, password, and from address are required.");
+    }
+    if (!EMAIL_RE.test(cleanFrom)) {
+      throw new Error("From address must be a valid email.");
+    }
+    if (!Number.isInteger(cleanPort) || cleanPort < 1 || cleanPort > 65535) {
+      throw new Error("Email server port must be between 1 and 65535.");
+    }
+    settingsRepository.set("smtp_host", cleanHost, "EMAIL");
+    settingsRepository.set("smtp_port", String(cleanPort), "EMAIL");
+    settingsRepository.set("smtp_user", cleanUser, "EMAIL");
+    settingsRepository.set("smtp_pass", cleanPass, "EMAIL");
+    settingsRepository.set("smtp_from", cleanFrom, "EMAIL");
+    logAudit$8(null, "UPDATE_SETTINGS", "SETTINGS", "smtp", { smtp_host: cleanHost, smtp_user: cleanUser });
+    return getPublicMailStatus();
+  },
+  signup: (input) => {
+    const { username, displayName, email, password, roleId } = validateSignup(input);
+    const db = getDb();
+    const role = db.prepare("SELECT id FROM roles WHERE id = ?").get(roleId);
+    if (!role) throw new Error("Select a valid role.");
+    assertIdentityAvailable(db, username, email);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const userId = crypto$1.randomUUID();
+    const create = db.transaction(() => {
+      const branchId = ensureBranch(db, now);
+      db.prepare(`
+        INSERT INTO users (
+          id, branch_id, role_id, username, display_name, email, email_verified,
+          password_hash, pin_hash, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, 1, ?, ?)
+      `).run(
+        userId,
+        branchId,
+        roleId,
+        username,
+        displayName,
+        email,
+        hashSecret(password),
+        now,
+        now
+      );
+    });
+    try {
+      create();
+    } catch (err) {
+      const message = String((err == null ? void 0 : err.message) || "");
+      if (/idx_users_email_lower|users\.email/i.test(message)) throw new Error("Email already registered.");
+      if (/unique/i.test(message) && /username/i.test(message)) throw new Error("That username is already in use.");
+      throw err;
+    }
+    logAudit$8(null, "CREATE_USER", "USER", userId, { username, email, roleId, via: "signup" });
+    return { ok: true, username };
+  },
+  requestSignup: async (input) => {
+    const { username, displayName, email, password, roleId } = validateSignup(input);
+    const db = getDb();
+    const role = db.prepare("SELECT id, name FROM roles WHERE id = ?").get(roleId);
+    if (!role) throw new Error("Select a valid role.");
+    assertIdentityAvailable(db, username, email);
+    const now = /* @__PURE__ */ new Date();
+    const code = generateOtp();
+    const id = crypto$1.randomUUID();
+    db.prepare("DELETE FROM signup_otps WHERE email = ? OR username = ?").run(email, username);
+    db.prepare(`
+      INSERT INTO signup_otps (
+        id, username, display_name, email, password_hash, role_id, otp_hash, expires_at, attempts, created_at, resend_available_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(
+      id,
+      username,
+      displayName,
+      email,
+      hashSecret(password),
+      roleId,
+      hashSecret(code),
+      new Date(now.getTime() + OTP_TTL_MS).toISOString(),
+      now.toISOString(),
+      new Date(now.getTime() + OTP_RESEND_COOLDOWN_MS).toISOString()
+    );
+    try {
+      await sendSignupOtp({ to: email, code, username: displayName });
+    } catch (err) {
+      db.prepare("DELETE FROM signup_otps WHERE id = ?").run(id);
+      throw err;
+    }
+    logAudit$8(null, "SIGNUP_OTP", "USER", null, { email, username });
+    return { ok: true, email, expiresInSeconds: OTP_TTL_MS / 1e3, delivered: true };
+  },
+  resendSignupOtp: async ({ email }) => {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (!EMAIL_RE.test(cleanEmail)) throw new Error("Enter a valid email address.");
+    const db = getDb();
+    const pending = db.prepare("SELECT * FROM signup_otps WHERE email = ?").get(cleanEmail);
+    if (!pending) throw new Error("No verification is waiting for this email. Sign up again.");
+    if (new Date(pending.resend_available_at).getTime() > Date.now()) {
+      throw new Error("Please wait before requesting another code.");
+    }
+    const now = /* @__PURE__ */ new Date();
+    const code = generateOtp();
+    db.prepare(`
+      UPDATE signup_otps
+      SET otp_hash = ?, expires_at = ?, attempts = 0, created_at = ?, resend_available_at = ?
+      WHERE id = ?
+    `).run(
+      hashSecret(code),
+      new Date(now.getTime() + OTP_TTL_MS).toISOString(),
+      now.toISOString(),
+      new Date(now.getTime() + OTP_RESEND_COOLDOWN_MS).toISOString(),
+      pending.id
+    );
+    try {
+      await sendSignupOtp({ to: cleanEmail, code, username: pending.display_name || pending.username });
+    } catch (err) {
+      db.prepare(`
+        UPDATE signup_otps
+        SET otp_hash = ?, expires_at = ?, attempts = ?, created_at = ?, resend_available_at = ?
+        WHERE id = ?
+      `).run(
+        pending.otp_hash,
+        pending.expires_at,
+        pending.attempts,
+        pending.created_at,
+        pending.resend_available_at,
+        pending.id
+      );
+      throw err;
+    }
+    return { ok: true, email: cleanEmail, expiresInSeconds: OTP_TTL_MS / 1e3, delivered: true };
+  },
+  verifySignupOtp: ({ email, otp }) => {
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    const code = String(otp || "").trim();
+    if (!EMAIL_RE.test(cleanEmail)) throw new Error("Enter a valid email address.");
+    if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code from your email.");
+    const db = getDb();
+    const pending = db.prepare("SELECT * FROM signup_otps WHERE email = ?").get(cleanEmail);
+    if (!pending) throw new Error("No verification is waiting for this email. Sign up again.");
+    if (new Date(pending.expires_at).getTime() <= Date.now()) {
+      db.prepare("DELETE FROM signup_otps WHERE id = ?").run(pending.id);
+      throw new Error("That code has expired. Request a new code.");
+    }
+    if (pending.attempts >= OTP_MAX_ATTEMPTS) {
+      throw new Error("Too many attempts. Request a new code.");
+    }
+    if (!verifySecret(code, pending.otp_hash)) {
+      db.prepare("UPDATE signup_otps SET attempts = attempts + 1 WHERE id = ?").run(pending.id);
+      const attempts = pending.attempts + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) throw new Error("Too many attempts. Request a new code.");
+      throw new Error("That code is incorrect.");
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const userId = crypto$1.randomUUID();
+    const create = db.transaction(() => {
+      assertIdentityAvailable(db, pending.username, pending.email);
+      const role = db.prepare("SELECT id FROM roles WHERE id = ?").get(pending.role_id);
+      if (!role) throw new Error("That role is no longer available. Sign up again.");
+      const branchId = ensureBranch(db, now);
+      db.prepare(`
+        INSERT INTO users (
+          id, branch_id, role_id, username, display_name, email, email_verified,
+          password_hash, pin_hash, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL, 1, ?, ?)
+      `).run(
+        userId,
+        branchId,
+        pending.role_id,
+        pending.username,
+        pending.display_name || pending.username,
+        pending.email,
+        pending.password_hash,
+        now,
+        now
+      );
+      db.prepare("DELETE FROM signup_otps WHERE id = ?").run(pending.id);
+    });
+    create();
+    logAudit$8(null, "CREATE_USER", "USER", userId, {
+      username: pending.username,
+      email: pending.email,
+      roleId: pending.role_id,
+      via: "signup_otp"
+    });
+    return { ok: true, username: pending.username };
+  },
+  hasPermission: (permissionCode) => {
+    const session = authRepository.getCurrentSession();
+    if (!session) return false;
+    if (session.roleCode === "super_admin") return true;
+    return session.permissions.includes(permissionCode);
+  },
   createUser: ({ branchId, roleId, username, displayName, password, pin }) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -1939,9 +2525,6 @@ const authRepository = {
     logAudit$8(branchId, "CREATE_USER", "USER", userId, { username, roleId });
     return { id: userId, username, displayName };
   },
-  /**
-   * Set user PIN (hashed)
-   */
   setUserPin: (userId, newPin) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2022,9 +2605,6 @@ const authRepository = {
     setupTx();
     return authRepository.loginWithPassword(username.trim().toLowerCase(), password);
   },
-  /**
-   * Set user Password (hashed)
-   */
   setUserPassword: (userId, newPassword) => {
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2033,21 +2613,120 @@ const authRepository = {
     return true;
   }
 };
-function createSessionForUser(user, method) {
+function validateSignup(input = {}) {
+  const usernameRaw = String(input.username || "").trim();
+  const email = String(input.email || "").trim().toLowerCase();
+  const password = String(input.password || "");
+  const confirmPassword = String(input.confirmPassword ?? "");
+  const roleId = String(input.roleId || "").trim();
+  if (!USERNAME_RE.test(usernameRaw)) {
+    throw new Error("Username must be 3–32 characters and use only letters, numbers, and underscores.");
+  }
+  if (!EMAIL_RE.test(email)) throw new Error("Enter a valid email address.");
+  if (password.length < 8 || password.length > 128 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new Error("Password must be at least 8 characters and include a letter and a number.");
+  }
+  if (password !== confirmPassword) throw new Error("Passwords do not match.");
+  if (!roleId) throw new Error("Select a role.");
+  return { username: usernameRaw.toLowerCase(), displayName: usernameRaw, email, password, roleId };
+}
+function assertIdentityAvailable(db, username, email) {
+  const usernameTaken = db.prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?)").get(username);
+  if (usernameTaken) throw new Error("That username is already in use.");
+  const emailTaken = db.prepare("SELECT id FROM users WHERE lower(email) = ?").get(email);
+  if (emailTaken) throw new Error("Email already registered.");
+}
+function ensureBranch(db, now) {
+  const existing = db.prepare("SELECT id FROM branches WHERE is_active = 1 ORDER BY created_at ASC LIMIT 1").get() || db.prepare("SELECT id FROM branches ORDER BY created_at ASC LIMIT 1").get();
+  if (existing) return existing.id;
+  const branchId = crypto$1.randomUUID();
+  db.prepare(`
+    INSERT INTO branches (id, name, code, phone, email, address, city, currency_code, currency_symbol, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(branchId, "My Restaurant", "BR-01", "", "", "", "", "USD", "$", now, now);
+  return branchId;
+}
+function issueSession(user, method) {
   const db = getDb();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const now = /* @__PURE__ */ new Date();
+  const nowIso2 = now.toISOString();
+  const expiresAt2 = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
+  const token = crypto$1.randomBytes(32).toString("hex");
+  const sessionId = crypto$1.randomUUID();
+  db.prepare(`
+    UPDATE auth_sessions
+    SET revoked_at = ?
+    WHERE user_id = ? AND revoked_at IS NULL
+  `).run(nowIso2, user.id);
+  db.prepare(`
+    INSERT INTO auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at, last_seen_at, method)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+  `).run(sessionId, user.id, hashToken(token), expiresAt2, nowIso2, nowIso2, method);
+  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(nowIso2, user.id);
+  currentSession = buildSession(user, { token, expiresAt: expiresAt2, sessionId, method, loginAt: nowIso2 });
+  lastSessionState = "ok";
+  logAudit$8(currentSession.branchId, "LOGIN", "USER", user.id, { method, role: user.role_code });
+  return currentSession;
+}
+function resolveSession(token, { allowMemory }) {
+  const raw = typeof token === "string" && token ? token : allowMemory ? currentSession == null ? void 0 : currentSession.token : "";
+  if (!raw) {
+    if (!allowMemory) currentSession = null;
+    lastSessionState = "none";
+    return null;
+  }
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM auth_sessions WHERE token_hash = ?").get(hashToken(raw));
+  if (!row || row.revoked_at) {
+    if (!currentSession || currentSession.token === raw) currentSession = null;
+    lastSessionState = (row == null ? void 0 : row.revoked_at) ? "revoked" : "none";
+    return null;
+  }
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    db.prepare(`
+      UPDATE auth_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL
+    `).run((/* @__PURE__ */ new Date()).toISOString(), row.id);
+    if (!currentSession || currentSession.token === raw) currentSession = null;
+    lastSessionState = "expired";
+    return null;
+  }
+  if (Date.now() - new Date(row.last_seen_at).getTime() > 6e4) {
+    db.prepare("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?").run((/* @__PURE__ */ new Date()).toISOString(), row.id);
+  }
+  if ((currentSession == null ? void 0 : currentSession.sessionId) === row.id && currentSession.token === raw) {
+    lastSessionState = "ok";
+    return currentSession;
+  }
+  const user = db.prepare(`${USER_SQL} WHERE u.id = ?`).get(row.user_id);
+  if (!user || !user.is_active) {
+    currentSession = null;
+    lastSessionState = "none";
+    return null;
+  }
+  currentSession = buildSession(user, {
+    token: raw,
+    expiresAt: row.expires_at,
+    sessionId: row.id,
+    method: row.method || "PASSWORD",
+    loginAt: row.created_at
+  });
+  lastSessionState = "ok";
+  return currentSession;
+}
+function buildSession(user, extra) {
+  const db = getDb();
   const permissions = db.prepare(`
     SELECT p.code
     FROM permissions p
     JOIN role_permissions rp ON p.id = rp.permission_id
     WHERE rp.role_id = ?
   `).all(user.role_id).map((r) => r.code);
-  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(now, user.id);
   const branch = user.branch_id ? db.prepare("SELECT id, name, code, currency_symbol FROM branches WHERE id = ?").get(user.branch_id) : db.prepare("SELECT id, name, code, currency_symbol FROM branches LIMIT 1").get();
-  currentSession = {
+  return {
     id: user.id,
     username: user.username,
     displayName: user.display_name,
+    email: user.email || null,
     roleId: user.role_id,
     roleCode: user.role_code,
     roleName: user.role_name,
@@ -2055,11 +2734,12 @@ function createSessionForUser(user, method) {
     branchName: branch == null ? void 0 : branch.name,
     currencySymbol: (branch == null ? void 0 : branch.currency_symbol) || "$",
     permissions,
-    loginAt: now,
-    method
+    loginAt: extra.loginAt,
+    expiresAt: extra.expiresAt,
+    token: extra.token,
+    sessionId: extra.sessionId,
+    method: extra.method
   };
-  logAudit$8(branch == null ? void 0 : branch.id, "LOGIN", "USER", user.id, { method, role: user.role_code });
-  return currentSession;
 }
 function logAudit$8(branchId, action, entityType, entityId, details) {
   try {
@@ -2147,14 +2827,14 @@ function seedDatabase(db, options = {}) {
         user: "waiter1",
         name: "Jordan Waiter",
         pin: "1111",
-        pass: null
+        pass: "waiter123"
       },
       {
         roleCode: "kitchen_staff",
         user: "chef1",
         name: "Chef Gordon",
         pin: "2222",
-        pass: null
+        pass: "chef123"
       }
     ] : [];
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2689,35 +3369,6 @@ async function restoreDatabase(backupFilePath, targetDbPath = null) {
     preRestoreBackup
   };
 }
-const settingsRepository = {
-  getAll: () => {
-    const db = getDb();
-    const rows = db.prepare("SELECT setting_key, setting_value, category, description, updated_at FROM system_settings").all();
-    const settings = {};
-    for (const r of rows) {
-      settings[r.setting_key] = r.setting_value;
-    }
-    return settings;
-  },
-  get: (key) => {
-    const db = getDb();
-    const row = db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?").get(key);
-    return row ? row.setting_value : null;
-  },
-  set: (key, value, category = "GENERAL") => {
-    const db = getDb();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    db.prepare(`
-      INSERT INTO system_settings (setting_key, setting_value, category, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(setting_key) DO UPDATE SET
-        setting_value = excluded.setting_value,
-        category = excluded.category,
-        updated_at = excluded.updated_at
-    `).run(key, value, category, now);
-    return true;
-  }
-};
 let flushHook = null;
 function setOutboxFlushHook(fn) {
   flushHook = typeof fn === "function" ? fn : null;
@@ -5673,7 +6324,7 @@ const couponRepository = {
     return id;
   }
 };
-function uuid$4() {
+function uuid$5() {
   return crypto$1.randomUUID();
 }
 function resolveValidUserId$3(db, userId) {
@@ -5689,7 +6340,7 @@ function resolveValidUserId$3(db, userId) {
   const fallback = db.prepare("SELECT id FROM users WHERE is_active = 1 LIMIT 1").get();
   return (fallback == null ? void 0 : fallback.id) || null;
 }
-function resolveValidBranchId$2(db, branchId) {
+function resolveValidBranchId$3(db, branchId) {
   if (branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
@@ -5706,12 +6357,12 @@ function logAudit$3(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
     const validUserId = resolveValidUserId$3(db, null);
-    const validBranchId = resolveValidBranchId$2(db, branchId);
+    const validBranchId = resolveValidBranchId$3(db, branchId);
     db.prepare(`
       INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      uuid$4(),
+      uuid$5(),
       validBranchId,
       validUserId,
       action,
@@ -5777,7 +6428,7 @@ const orderRepository = {
       );
       if (Array.isArray(orderData.items)) {
         for (const item of orderData.items) {
-          const itemId = uuid$4();
+          const itemId = uuid$5();
           db.prepare(`
             INSERT INTO order_items (
               id, order_id, product_id, variation_id, item_name,
@@ -5801,7 +6452,7 @@ const orderRepository = {
               db.prepare(`
                 INSERT INTO order_item_modifiers (id, order_item_id, modifier_id, name, price_cents)
                 VALUES (?, ?, ?, ?, ?)
-              `).run(uuid$4(), itemId, mod.id || null, mod.name, (mod.priceCents || 0) * (mod.quantity || 1));
+              `).run(uuid$5(), itemId, mod.id || null, mod.name, (mod.priceCents || 0) * (mod.quantity || 1));
             }
           }
         }
@@ -5810,7 +6461,7 @@ const orderRepository = {
         db.prepare(`
           INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(uuid$4(), existing.id, existing.status, status, cashierId, "POS ticket updated", now);
+        `).run(uuid$5(), existing.id, existing.status, status, cashierId, "POS ticket updated", now);
       }
       if (orderType === "DINE_IN" && orderData.tableId) {
         db.prepare("UPDATE dining_tables SET status = ?, current_order_id = ?, updated_at = ? WHERE id = ?").run("OCCUPIED", existing.id, now, orderData.tableId);
@@ -5849,7 +6500,7 @@ const orderRepository = {
     }
     const db = getDb();
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const orderId = uuid$4();
+    const orderId = uuid$5();
     const orderNumber = orderData.orderNumber || (() => {
       const day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10).replace(/-/g, "");
       let prefixKey = "ORD";
@@ -5870,7 +6521,7 @@ const orderRepository = {
     const status = orderData.status || "CONFIRMED";
     const orderType = orderData.orderType || "DINE_IN";
     const createOrderTx = db.transaction(() => {
-      const branchId = resolveValidBranchId$2(db, orderData.branchId);
+      const branchId = resolveValidBranchId$3(db, orderData.branchId);
       const cashierId = resolveValidUserId$3(db, orderData.cashierId);
       db.prepare(`
         INSERT INTO orders (
@@ -5912,7 +6563,7 @@ const orderRepository = {
       );
       if (Array.isArray(orderData.items)) {
         for (const item of orderData.items) {
-          const itemId = uuid$4();
+          const itemId = uuid$5();
           let stationId = item.kitchenStationId || null;
           if (!stationId && item.productId) {
             try {
@@ -5945,7 +6596,7 @@ const orderRepository = {
               db.prepare(`
                 INSERT INTO order_item_modifiers (id, order_item_id, modifier_id, name, price_cents)
                 VALUES (?, ?, ?, ?, ?)
-              `).run(uuid$4(), itemId, mod.id || null, mod.name, mod.priceCents || 0);
+              `).run(uuid$5(), itemId, mod.id || null, mod.name, mod.priceCents || 0);
             }
           }
         }
@@ -5953,14 +6604,14 @@ const orderRepository = {
       db.prepare(`
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, NULL, ?, ?, 'Order created via POS', ?)
-      `).run(uuid$4(), orderId, status, cashierId, now);
+      `).run(uuid$5(), orderId, status, cashierId, now);
       if (orderType === "DINE_IN" && orderData.tableId && status !== "COMPLETED" && status !== "CANCELLED") {
         db.prepare("UPDATE dining_tables SET status = ?, current_order_id = ?, updated_at = ? WHERE id = ?").run("OCCUPIED", orderId, now, orderData.tableId);
       }
       db.prepare(`
         INSERT INTO sync_outbox (id, entity_type, entity_id, operation, payload_json, status, created_at)
         VALUES (?, 'ORDER', ?, 'INSERT', ?, 'PENDING', ?)
-      `).run(uuid$4(), orderId, JSON.stringify({ id: orderId, orderNumber, totalCents: orderData.totalCents }), now);
+      `).run(uuid$5(), orderId, JSON.stringify({ id: orderId, orderNumber, totalCents: orderData.totalCents }), now);
       logAudit$3(orderData.branchId, "CREATE_ORDER", "ORDER", orderId, {
         orderNumber,
         orderType,
@@ -6068,7 +6719,7 @@ const orderRepository = {
       if (order.status === "COMPLETED" && (order.paid_cents || 0) >= (order.total_cents || 0)) {
         throw new Error("This sale is already fully paid. Duplicate completion was blocked.");
       }
-      const validBranchId = resolveValidBranchId$2(db, branchId || order.branch_id);
+      const validBranchId = resolveValidBranchId$3(db, branchId || order.branch_id);
       const validCashierId = resolveValidUserId$3(db, cashierId || order.cashier_id);
       let totalPaymentCents = 0;
       for (const p of payments) {
@@ -6100,7 +6751,7 @@ const orderRepository = {
             amount_cents, tendered_cents, change_cents, reference_number, status, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?)
         `).run(
-          uuid$4(),
+          uuid$5(),
           validBranchId,
           orderId,
           validCashierId,
@@ -6128,7 +6779,7 @@ const orderRepository = {
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-        uuid$4(),
+        uuid$5(),
         orderId,
         order.status,
         nextStatus,
@@ -6220,7 +6871,7 @@ const orderRepository = {
       db.prepare(`
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, 'CANCELLED', ?, ?, ?)
-      `).run(uuid$4(), orderId, order.status, validCancelledBy, `Cancelled: ${reason.trim()}`, now);
+      `).run(uuid$5(), orderId, order.status, validCancelledBy, `Cancelled: ${reason.trim()}`, now);
       if (order.table_id) {
         db.prepare("UPDATE dining_tables SET status = 'AVAILABLE', current_order_id = NULL, updated_at = ? WHERE id = ?").run(now, order.table_id);
       }
@@ -6291,7 +6942,7 @@ const orderRepository = {
         throw new Error(`Refund exceeds remaining paid amount ($${(maxRefundable / 100).toFixed(2)}).`);
       }
       const validCashierId = resolveValidUserId$3(db, cashierId);
-      const refundId = uuid$4();
+      const refundId = uuid$5();
       const originalPay = db.prepare(`
         SELECT payment_method FROM payments WHERE order_id = ? AND status = 'COMPLETED' ORDER BY created_at DESC LIMIT 1
       `).get(orderId);
@@ -6316,7 +6967,7 @@ const orderRepository = {
           db.prepare(`
             INSERT INTO refund_items (id, refund_id, order_item_id, quantity, amount_cents, reason)
             VALUES (?, ?, ?, ?, ?, ?)
-          `).run(uuid$4(), refundId, line.orderItemId, parseFloat(line.quantity), parseInt(line.amountCents || 0, 10), line.reason || reason);
+          `).run(uuid$5(), refundId, line.orderItemId, parseFloat(line.quantity), parseInt(line.amountCents || 0, 10), line.reason || reason);
         }
       }
       const newRefunded = alreadyRefunded + amount;
@@ -6331,7 +6982,7 @@ const orderRepository = {
         INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by_user_id, notes, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
-        uuid$4(),
+        uuid$5(),
         orderId,
         order.status,
         nextStatus,
@@ -6383,6 +7034,9 @@ const orderRepository = {
 function requireSession() {
   const session = authRepository.getCurrentSession();
   if (!session) {
+    const state = authRepository.getLastSessionState();
+    if (state === "expired") throw new Error("Session expired. Please sign in again.");
+    if (state === "revoked") throw new Error("Your session has ended. Please sign in again.");
     throw new Error("Unauthorized: Please sign in.");
   }
   return session;
@@ -6814,28 +7468,49 @@ const dashboardRepository = {
   }
 };
 function registerAuthAndDashboardHandlers() {
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event, credentials) => {
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event, credentials = {}) => {
     try {
-      if (credentials.pin) {
-        return authRepository.loginWithPin(credentials.pin, credentials.userId, credentials.username);
-      } else if (credentials.username && credentials.password) {
-        return authRepository.loginWithPassword(credentials.username, credentials.password);
-      } else {
-        throw new Error("Must provide PIN or username and password.");
+      const username = credentials == null ? void 0 : credentials.username;
+      const password = credentials == null ? void 0 : credentials.password;
+      if (!username || !password) {
+        throw new Error("Enter your username and password.");
       }
+      return authRepository.loginWithPassword(username, password);
     } catch (err) {
       console.error("[IPC auth:login] Error:", err.message);
       throw err;
     }
   });
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
-    return authRepository.logout();
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async (_event, token) => {
+    return authRepository.logout(typeof token === "string" ? token : void 0);
   });
-  ipcMain.handle(IPC_CHANNELS.AUTH_CURRENT_USER, async () => {
+  ipcMain.handle(IPC_CHANNELS.AUTH_CURRENT_USER, async (_event, token) => {
+    if (typeof token === "string") return authRepository.getCurrentSession(token);
     return authRepository.getCurrentSession();
   });
   ipcMain.handle("auth:get-login-users", async () => {
     return authRepository.getLoginUsers();
+  });
+  ipcMain.handle("auth:list-roles", async () => {
+    return authRepository.listRoles();
+  });
+  ipcMain.handle("auth:mail-status", async () => {
+    return authRepository.getMailStatus();
+  });
+  ipcMain.handle("auth:save-mail-config", async (_event, payload) => {
+    return authRepository.saveMailConfig(payload || {});
+  });
+  ipcMain.handle("auth:signup", async (_event, payload) => {
+    return authRepository.signup(payload || {});
+  });
+  ipcMain.handle("auth:request-signup", async (_event, payload) => {
+    return authRepository.requestSignup(payload || {});
+  });
+  ipcMain.handle("auth:resend-signup-otp", async (_event, payload) => {
+    return authRepository.resendSignupOtp(payload || {});
+  });
+  ipcMain.handle("auth:verify-signup", async (_event, payload) => {
+    return authRepository.verifySignupOtp(payload || {});
   });
   ipcMain.handle("auth:needs-setup", async () => {
     return authRepository.needsSetup();
@@ -6847,7 +7522,12 @@ function registerAuthAndDashboardHandlers() {
     var _a;
     try {
       const session = authRepository.getCurrentSession();
-      if (!session) throw new Error("Unauthorized: Please sign in.");
+      if (!session) {
+        const state = authRepository.getLastSessionState();
+        if (state === "expired") throw new Error("Session expired. Please sign in again.");
+        if (state === "revoked") throw new Error("Your session has ended. Please sign in again.");
+        throw new Error("Unauthorized: Please sign in.");
+      }
       if (session.roleCode !== "super_admin" && !((_a = session.permissions) == null ? void 0 : _a.includes("dashboard:view"))) {
         throw new Error("Unauthorized: Requires 'dashboard:view' permission.");
       }
@@ -6860,7 +7540,12 @@ function registerAuthAndDashboardHandlers() {
   });
   ipcMain.handle("dashboard:list-branches", async () => {
     const session = authRepository.getCurrentSession();
-    if (!session) throw new Error("Unauthorized: Please sign in.");
+    if (!session) {
+      const state = authRepository.getLastSessionState();
+      if (state === "expired") throw new Error("Session expired. Please sign in again.");
+      if (state === "revoked") throw new Error("Your session has ended. Please sign in again.");
+      throw new Error("Unauthorized: Please sign in.");
+    }
     if (session.roleCode !== "super_admin") {
       return session.branchId ? [{ id: session.branchId, name: session.branchName, code: null, currency_symbol: session.currencySymbol }] : [];
     }
@@ -7087,10 +7772,10 @@ function registerTableIpcHandlers() {
     return tableRepository.splitBill(data);
   });
 }
-function uuid$5() {
+function uuid$4() {
   return crypto$1.randomUUID();
 }
-function resolveValidBranchId$3(db, branchId) {
+function resolveValidBranchId$2(db, branchId) {
   if (branchId) {
     const b = db.prepare("SELECT id FROM branches WHERE id = ?").get(branchId);
     if (b) return b.id;
@@ -7116,12 +7801,12 @@ function logAudit$2(branchId, action, entityType, entityId, details) {
   try {
     const db = getDb();
     const validUserId = resolveValidUserId$2(db, null);
-    const validBranchId = resolveValidBranchId$3(db, branchId);
+    const validBranchId = resolveValidBranchId$2(db, branchId);
     db.prepare(`
       INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, details_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      uuid$5(),
+      uuid$4(),
       validBranchId,
       validUserId,
       action,
@@ -7140,7 +7825,7 @@ const reservationRepository = {
    */
   getReservations: ({ branchId, date = null, status = null, search = "" } = {}) => {
     const db = getDb();
-    const validBranchId = resolveValidBranchId$3(db, branchId);
+    const validBranchId = resolveValidBranchId$2(db, branchId);
     let sql = `
       SELECT r.*,
              t.table_number, t.capacity as table_capacity,
@@ -7197,8 +7882,8 @@ const reservationRepository = {
    */
   createReservation: (data) => {
     const db = getDb();
-    const validBranchId = resolveValidBranchId$3(db, data.branchId);
-    const reservationId = uuid$5();
+    const validBranchId = resolveValidBranchId$2(db, data.branchId);
+    const reservationId = uuid$4();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const createTx = db.transaction(() => {
       const customerName = data.customerName || data.guestName || "";
@@ -7315,7 +8000,7 @@ const reservationRepository = {
    */
   checkAvailability: ({ branchId, date, time, startTime, partySize, durationMinutes = 90 }) => {
     const db = getDb();
-    const validBranchId = resolveValidBranchId$3(db, branchId);
+    const validBranchId = resolveValidBranchId$2(db, branchId);
     const requiredCap = parseInt(partySize, 10) || 1;
     const resolvedDate = date || (startTime ? String(startTime).slice(0, 10) : null);
     const resolvedTime = time || (startTime && String(startTime).includes("T") ? String(startTime).slice(11, 16) : time);
@@ -10637,122 +11322,6 @@ function registerMediaHandlers() {
     const buf = fs.readFileSync(file);
     return `data:image/${mime};base64,${buf.toString("base64")}`;
   });
-}
-function applyEnvPair(name, value) {
-  if (!name || value == null || value === "") return;
-  if (process.env[name] == null || process.env[name] === "") {
-    process.env[name] = String(value);
-  }
-}
-function loadBundledJson() {
-  const candidates = [
-    process.resourcesPath && path.join(process.resourcesPath, "sync-config.json"),
-    process.env.APP_ROOT && path.join(process.env.APP_ROOT, "build", "sync-config.json"),
-    path.join(process.cwd(), "build", "sync-config.json")
-  ].filter(Boolean);
-  for (const file of candidates) {
-    try {
-      if (!fs.existsSync(file)) continue;
-      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      applyEnvPair("SUPABASE_URL", parsed.SUPABASE_URL || parsed.url);
-      applyEnvPair("SUPABASE_KEY", parsed.SUPABASE_KEY || parsed.key);
-      break;
-    } catch {
-    }
-  }
-}
-function loadDotEnv() {
-  loadBundledJson();
-  const candidates = [
-    process.env.APP_ROOT && path.join(process.env.APP_ROOT, ".env"),
-    path.join(process.cwd(), ".env"),
-    process.resourcesPath && path.join(process.resourcesPath, ".env")
-  ].filter(Boolean);
-  for (const file of candidates) {
-    try {
-      if (!fs.existsSync(file)) continue;
-      const text = fs.readFileSync(file, "utf8");
-      for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#")) continue;
-        const eq = trimmed.indexOf("=");
-        if (eq < 1) continue;
-        const name = trimmed.slice(0, eq).trim();
-        let value = trimmed.slice(eq + 1).trim();
-        if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-          value = value.slice(1, -1);
-        }
-        applyEnvPair(name, value);
-      }
-      break;
-    } catch {
-    }
-  }
-}
-function ensureCloudSyncReady() {
-  loadDotEnv();
-  const url = (getMeta("supabase_url", "") || process.env.SUPABASE_URL || "").trim();
-  const key = (getMeta("supabase_key", "") || process.env.SUPABASE_KEY || "").trim();
-  if (!url || !key) return getSyncConfig();
-  if (getMeta("cloud_sync_disabled_by_user") === "1") return getSyncConfig();
-  setMeta("cloud_sync_enabled", "1");
-  if (!getMeta("supabase_url")) setMeta("supabase_url", url);
-  if (!getMeta("supabase_key")) setMeta("supabase_key", key);
-  return getSyncConfig();
-}
-function nowIso() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function getMeta(key, fallback = null) {
-  const db = getDb();
-  const row = db.prepare("SELECT setting_value FROM sync_metadata WHERE setting_key = ?").get(key);
-  return row ? row.setting_value : fallback;
-}
-function setMeta(key, value) {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO sync_metadata (setting_key, setting_value, updated_at)
-    VALUES (?, ?, ?)
-    ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = excluded.updated_at
-  `).run(key, value == null ? null : String(value), nowIso());
-}
-function getDeviceId() {
-  let id = getMeta("device_id");
-  if (!id) {
-    id = crypto$1.randomUUID();
-    setMeta("device_id", id);
-  }
-  return id;
-}
-function getSyncConfig() {
-  loadDotEnv();
-  const enabled = getMeta("cloud_sync_enabled", "0") === "1";
-  const url = (getMeta("supabase_url", "") || process.env.SUPABASE_URL || "").trim();
-  const key = (getMeta("supabase_key", "") || process.env.SUPABASE_KEY || "").trim();
-  return {
-    enabled,
-    url,
-    key,
-    hasKey: Boolean(key),
-    deviceId: getDeviceId(),
-    lastSyncedAt: getMeta("last_synced_at"),
-    lastPullAt: getMeta("last_pull_at"),
-    lastError: getMeta("last_error")
-  };
-}
-function saveSyncConfig({ enabled, url, key }) {
-  if (typeof enabled === "boolean") {
-    setMeta("cloud_sync_enabled", enabled ? "1" : "0");
-    setMeta("cloud_sync_disabled_by_user", enabled ? "0" : "1");
-  }
-  if (url !== void 0) setMeta("supabase_url", (url || "").trim());
-  if (key !== void 0 && key !== "") setMeta("supabase_key", key.trim());
-  return getSyncConfig();
-}
-function countOutbox(status = "PENDING") {
-  const db = getDb();
-  const row = db.prepare("SELECT COUNT(*) AS n FROM sync_outbox WHERE status = ?").get(status);
-  return (row == null ? void 0 : row.n) || 0;
 }
 const EXTRACTOR_KEY = Symbol.for("@supabase/supabase-js.traceContextExtractor");
 function getTraceContextExtractor() {
@@ -31585,8 +32154,8 @@ function refreshCounts(cfg) {
   lastStatus.lastError = cfg.lastError;
 }
 async function probeOnline(cfg) {
-  if (!net.isOnline()) return false;
-  if (!cfg.url) return net.isOnline();
+  if (!net$1.isOnline()) return false;
+  if (!cfg.url) return net$1.isOnline();
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4e3);

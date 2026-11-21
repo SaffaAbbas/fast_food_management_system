@@ -56,15 +56,18 @@ export function initBrowserMockApi() {
 
   // Initialize or fetch state from localStorage
   let users = getStorage('users', DUMMY.INITIAL_USERS)
-  const rawUser = getStorage('current_user', users[0] || DUMMY.INITIAL_USERS[0])
-  let currentUser = rawUser
-    ? {
-        ...rawUser,
-        roleCode: rawUser.roleCode || rawUser.role_code || 'super_admin',
-        roleName: rawUser.roleName || rawUser.role_name || 'Super Administrator',
-        permissions: DUMMY.ALL_PERMISSIONS,
-        branchName: rawUser.branchName || 'Main Flagship Branch',
-      }
+  let pendingSignup = getStorage('pending_signup', null)
+  let mailConfig = getStorage('mail_config', null)
+  const bootToken = (() => {
+    try {
+      return localStorage.getItem('pos_auth_token') || ''
+    } catch {
+      return ''
+    }
+  })()
+  const savedSession = getStorage('auth_session', null)
+  let currentUser = bootToken && savedSession?.token === bootToken && new Date(savedSession.expiresAt).getTime() > Date.now()
+    ? savedSession
     : null
   let categories = getStorage('categories', DUMMY.INITIAL_CATEGORIES)
   let products = getStorage('products', DUMMY.INITIAL_PRODUCTS)
@@ -117,80 +120,179 @@ export function initBrowserMockApi() {
     },
 
     auth: {
-      login: async ({ pin, username, password, userId }) => {
+      login: async ({ username, password }) => {
+        if (!username || !password) throw new Error('Enter your username and password.')
         const list = getStorage('users', users)
-        const found = list.find((u) => {
-          if (userId && (u.id === userId || u.userId === userId)) {
-            if (pin) return u.pin === pin
-            if (password) return u.pass === password || u.password === password
-            return true
-          }
-          if (pin && u.pin === pin) return true
-          if (username && u.username && u.username.toLowerCase() === username.toLowerCase()) {
-            if (password) return u.pass === password || u.password === password
-            return true
-          }
-          return false
-        }) || list[0]
-
+        const found = list.find((u) => u.username && u.username.toLowerCase() === String(username).trim().toLowerCase())
+        if (!found || (found.pass !== password && found.password !== password)) {
+          throw new Error('Invalid username or password.')
+        }
+        const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
+        const token = `tok_${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`
         const user = {
           ...found,
-          roleCode: found.roleCode || found.role_code || 'super_admin',
-          roleName: found.roleName || found.role_name || 'Super Administrator',
-          permissions: DUMMY.ALL_PERMISSIONS,
+          roleCode: found.roleCode || found.role_code || 'cashier',
+          roleName: found.roleName || found.role_name || 'Staff',
+          permissions: found.permissions || DUMMY.ALL_PERMISSIONS,
           branchName: found.branchName || 'Main Flagship Branch',
+          token,
+          expiresAt,
+          loginAt: new Date().toISOString(),
+          method: 'PASSWORD',
         }
         currentUser = user
-        setStorage('current_user', user)
+        setStorage('auth_session', user)
+        try { localStorage.setItem('pos_auth_token', token) } catch { /* ignore */ }
         return user
       },
-      registerUser: async ({ username, displayName, roleCode, pin, password }) => {
-        const list = getStorage('users', users)
-        const roleNames = {
-          super_admin: 'Super Administrator',
-          admin: 'Administrator',
-          manager: 'Restaurant Manager',
-          cashier: 'Senior Cashier',
-          waiter: 'Head Waiter',
-          kitchen_staff: 'Head Chef',
+      listRoles: async () => DUMMY.INITIAL_ROLES,
+      needsSetup: async () => getStorage('users', users).length === 0,
+      mailStatus: async () => (
+        mailConfig?.configured
+          ? { configured: true, host: mailConfig.host, port: mailConfig.port, user: mailConfig.user, from: mailConfig.from }
+          : { configured: false, host: '', port: 587, user: '', from: '' }
+      ),
+      saveMailConfig: async ({ host, port, user, pass, from }) => {
+        if (!String(host || '').trim() || !String(user || '').trim() || !String(from || '').trim() || !(pass || mailConfig?.pass)) {
+          throw new Error('Email server host, username, password, and from address are required.')
         }
-        const cleanRole = roleCode || 'cashier'
+        mailConfig = {
+          configured: true,
+          host: String(host).trim(),
+          port: Number(port || 587),
+          user: String(user).trim(),
+          from: String(from).trim(),
+          pass: pass || mailConfig?.pass,
+        }
+        setStorage('mail_config', mailConfig)
+        return { configured: true, host: mailConfig.host, port: mailConfig.port, user: mailConfig.user, from: mailConfig.from }
+      },
+      signup: async ({ username, email, password, confirmPassword, roleId }) => {
+        const name = String(username || '').trim()
+        const cleanEmail = String(email || '').trim().toLowerCase()
+        if (!/^[a-zA-Z0-9_]{3,32}$/.test(name)) throw new Error('Username must be 3–32 characters and use only letters, numbers, and underscores.')
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) throw new Error('Enter a valid email address.')
+        if (!password || password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+          throw new Error('Password must be at least 8 characters and include a letter and a number.')
+        }
+        if (password !== confirmPassword) throw new Error('Passwords do not match.')
+        const role = DUMMY.INITIAL_ROLES.find((item) => item.id === roleId)
+        if (!role) throw new Error('Select a valid role.')
+        const list = getStorage('users', users)
+        if (list.some((item) => item.username?.toLowerCase() === name.toLowerCase())) throw new Error('That username is already in use.')
+        if (list.some((item) => item.email?.toLowerCase() === cleanEmail)) throw new Error('Email already registered.')
         const newUser = {
           id: `usr-${Date.now()}`,
-          userId: `usr-${Date.now()}`,
-          username: (username || `staff_${Date.now()}`).toLowerCase().trim(),
-          displayName: displayName || username || 'New Staff',
-          display_name: displayName || username || 'New Staff',
-          roleCode: cleanRole,
-          role_code: cleanRole,
-          roleName: roleNames[cleanRole] || 'Staff Member',
-          role_name: roleNames[cleanRole] || 'Staff Member',
-          pin: pin || '1234',
-          pass: password || '123456',
+          username: name.toLowerCase(),
+          displayName: name,
+          display_name: name,
+          email: cleanEmail,
+          pass: password,
+          roleCode: role.code,
+          role_code: role.code,
+          roleName: role.name,
+          role_name: role.name,
           branchId: 'br-01',
           branchName: 'Main Flagship Branch',
           permissions: DUMMY.ALL_PERMISSIONS,
         }
         users = [...list, newUser]
         setStorage('users', users)
-        currentUser = newUser
-        setStorage('current_user', newUser)
-        return newUser
+        return { ok: true, username: newUser.username }
       },
-      logout: async () => {
-        currentUser = null
-        setStorage('current_user', null)
-        return true
-      },
-      getCurrentUser: async () => {
-        if (!currentUser) return null
-        return {
-          ...currentUser,
-          roleCode: currentUser.roleCode || currentUser.role_code || 'super_admin',
-          roleName: currentUser.roleName || currentUser.role_name || 'Super Administrator',
-          permissions: DUMMY.ALL_PERMISSIONS,
-          branchName: currentUser.branchName || 'Main Flagship Branch',
+      requestSignup: async ({ username, email, password, confirmPassword, roleId }) => {
+        const name = String(username || '').trim()
+        const cleanEmail = String(email || '').trim().toLowerCase()
+        if (!/^[a-zA-Z0-9_]{3,32}$/.test(name)) throw new Error('Username must be 3–32 characters and use only letters, numbers, and underscores.')
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) throw new Error('Enter a valid email address.')
+        if (!password || password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+          throw new Error('Password must be at least 8 characters and include a letter and a number.')
         }
+        if (password !== confirmPassword) throw new Error('Passwords do not match.')
+        const role = DUMMY.INITIAL_ROLES.find((item) => item.id === roleId)
+        if (!role) throw new Error('Select a valid role.')
+        const list = getStorage('users', users)
+        if (list.some((item) => item.username?.toLowerCase() === name.toLowerCase())) throw new Error('That username is already in use.')
+        if (list.some((item) => item.email?.toLowerCase() === cleanEmail)) throw new Error('Email already registered.')
+        const code = String(Math.floor(Math.random() * 1000000)).padStart(6, '0')
+        pendingSignup = {
+          username: name.toLowerCase(),
+          email: cleanEmail,
+          password,
+          role,
+          code,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          attempts: 0,
+          resendAt: Date.now() + 30000,
+        }
+        setStorage('pending_signup', pendingSignup)
+        return { ok: true, email: cleanEmail, expiresInSeconds: 600, delivered: false, previewCode: code }
+      },
+      resendSignupOtp: async ({ email }) => {
+        const cleanEmail = String(email || '').trim().toLowerCase()
+        if (!pendingSignup || pendingSignup.email !== cleanEmail) throw new Error('No verification is waiting for this email. Sign up again.')
+        if (pendingSignup.resendAt > Date.now()) throw new Error('Please wait before requesting another code.')
+        pendingSignup = {
+          ...pendingSignup,
+          code: String(Math.floor(Math.random() * 1000000)).padStart(6, '0'),
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          attempts: 0,
+          resendAt: Date.now() + 30000,
+        }
+        setStorage('pending_signup', pendingSignup)
+        return { ok: true, email: cleanEmail, expiresInSeconds: 600, delivered: false, previewCode: pendingSignup.code }
+      },
+      verifySignup: async ({ email, otp }) => {
+        const cleanEmail = String(email || '').trim().toLowerCase()
+        const code = String(otp || '').trim()
+        if (!pendingSignup || pendingSignup.email !== cleanEmail) throw new Error('No verification is waiting for this email. Sign up again.')
+        if (pendingSignup.expiresAt <= Date.now()) throw new Error('That code has expired. Request a new code.')
+        if (pendingSignup.attempts >= 5) throw new Error('Too many attempts. Request a new code.')
+        if (pendingSignup.code !== code) {
+          pendingSignup = { ...pendingSignup, attempts: pendingSignup.attempts + 1 }
+          setStorage('pending_signup', pendingSignup)
+          throw new Error(pendingSignup.attempts >= 5 ? 'Too many attempts. Request a new code.' : 'That code is incorrect.')
+        }
+        const list = getStorage('users', users)
+        const newUser = {
+          id: `usr-${Date.now()}`,
+          username: pendingSignup.username,
+          displayName: pendingSignup.username,
+          display_name: pendingSignup.username,
+          email: pendingSignup.email,
+          pass: pendingSignup.password,
+          roleCode: pendingSignup.role.code,
+          role_code: pendingSignup.role.code,
+          roleName: pendingSignup.role.name,
+          role_name: pendingSignup.role.name,
+          branchId: 'br-01',
+          branchName: 'Main Flagship Branch',
+          permissions: DUMMY.ALL_PERMISSIONS,
+        }
+        users = [...list, newUser]
+        setStorage('users', users)
+        pendingSignup = null
+        setStorage('pending_signup', null)
+        return { ok: true, username: newUser.username }
+      },
+      logout: async (token) => {
+        if (!token || currentUser?.token === token) {
+          currentUser = null
+          setStorage('auth_session', null)
+          try { localStorage.removeItem('pos_auth_token') } catch { /* ignore */ }
+        }
+        return { success: true }
+      },
+      getCurrentUser: async (token) => {
+        const saved = getStorage('auth_session', currentUser)
+        if (!saved || !token || saved.token !== token) return null
+        if (new Date(saved.expiresAt).getTime() <= Date.now()) {
+          currentUser = null
+          setStorage('auth_session', null)
+          return null
+        }
+        currentUser = saved
+        return saved
       },
       getLoginUsers: async () => getStorage('users', users),
     },

@@ -4,6 +4,9 @@ import { getDb } from '../db/index.js'
 export function requireSession() {
   const session = authRepository.getCurrentSession()
   if (!session) {
+    const state = authRepository.getLastSessionState()
+    if (state === 'expired') throw new Error('Session expired. Please sign in again.')
+    if (state === 'revoked') throw new Error('Your session has ended. Please sign in again.')
     throw new Error('Unauthorized: Please sign in.')
   }
   return session

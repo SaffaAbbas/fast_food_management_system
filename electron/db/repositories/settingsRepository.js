@@ -6,6 +6,7 @@ export const settingsRepository = {
     const rows = db.prepare('SELECT setting_key, setting_value, category, description, updated_at FROM system_settings').all()
     const settings = {}
     for (const r of rows) {
+      if (r.setting_key === 'smtp_pass') continue
       settings[r.setting_key] = r.setting_value
     }
     return settings

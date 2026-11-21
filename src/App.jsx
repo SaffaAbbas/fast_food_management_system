@@ -63,6 +63,32 @@ import AuditLogView from './features/audit/AuditLogView.jsx'
 import QrKioskCenterView from './features/kiosk/QrKioskCenterView.jsx'
 import { userCan, homeModuleFor } from './lib/access.js'
 
+const AUTH_TOKEN_KEY = 'pos_auth_token'
+
+function readAuthToken() {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeAuthToken(token) {
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token)
+    else localStorage.removeItem(AUTH_TOKEN_KEY)
+  } catch {
+    /* storage can be unavailable */
+  }
+}
+
+function formatSessionEnd(iso) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
 const MODULE_LIST = [
   { id: 'dashboard', name: 'Dashboard', group: 'Service', icon: LayoutDashboard, perms: ['dashboard:view'] },
   { id: 'pos', name: 'POS', group: 'Service', icon: ShoppingBag, perms: ['pos:create_order'] },
@@ -88,6 +114,11 @@ const MODULE_LIST = [
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null)
+  const [sessionChecked, setSessionChecked] = useState(false)
+  const [authNotice, setAuthNotice] = useState('')
+  const [confirmLogout, setConfirmLogout] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const [activeModule, setActiveModule] = useState('dashboard')
   const [systemInfo, setSystemInfo] = useState(null)
   const [dbStatus, setDbStatus] = useState(null)
@@ -112,6 +143,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!currentUser) return
     window.api?.settings?.getAll?.()
       .then((s) => {
         if (s?.ui_theme) document.documentElement.setAttribute('data-theme', s.ui_theme)
@@ -122,19 +154,70 @@ export default function App() {
       .catch(() => {})
   }, [currentUser])
 
-  // Check existing session
   useEffect(() => {
-    if (window.api?.auth?.getCurrentUser) {
-      window.api.auth.getCurrentUser()
-        .then((session) => {
-          if (session) {
+    let cancelled = false
+    const restore = async () => {
+      try {
+        const token = readAuthToken()
+        if (token && window.api?.auth?.getCurrentUser) {
+          const session = await window.api.auth.getCurrentUser(token)
+          if (cancelled) return
+          if (session?.token) {
+            writeAuthToken(session.token)
             setCurrentUser(session)
             setActiveModule(homeModuleFor(session))
+          } else {
+            writeAuthToken('')
+            setAuthNotice('Your session expired. Sign in again.')
           }
-        })
-        .catch((e) => console.error('Failed to get session:', e))
+        }
+      } catch (err) {
+        console.error('Failed to restore session:', err)
+      } finally {
+        if (!cancelled) setSessionChecked(true)
+      }
+    }
+    restore()
+    return () => {
+      cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser?.token || !currentUser?.expiresAt) return undefined
+    let stopped = false
+    const endSession = () => {
+      if (stopped) return
+      stopped = true
+      const token = currentUser.token
+      writeAuthToken('')
+      setCurrentUser(null)
+      setActiveModule('dashboard')
+      setConfirmLogout(false)
+      setAuthNotice('Your session expired. Sign in again.')
+      window.api?.auth?.logout?.(token).catch(() => {})
+    }
+    const remaining = new Date(currentUser.expiresAt).getTime() - Date.now()
+    if (remaining <= 0) {
+      endSession()
+      return undefined
+    }
+    const timer = setTimeout(endSession, remaining)
+    const poll = setInterval(async () => {
+      try {
+        const session = await window.api?.auth?.getCurrentUser?.(currentUser.token)
+        if (!session) endSession()
+      } catch (err) {
+        const message = String(err?.message || '')
+        if (message.toLowerCase().includes('session expired')) endSession()
+      }
+    }, 20000)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      clearInterval(poll)
+    }
+  }, [currentUser?.token, currentUser?.expiresAt])
 
   const loadData = async () => {
     if (window.api?.app?.getInfo) {
@@ -181,8 +264,9 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!currentUser) return
     loadData()
-  }, [selectedCategory, searchQuery])
+  }, [currentUser, selectedCategory, searchQuery])
 
   useEffect(() => {
     let unsub = () => {}
@@ -222,11 +306,21 @@ export default function App() {
   }, [])
 
   const handleLogout = async () => {
-    if (window.api?.auth?.logout) {
-      await window.api.auth.logout()
+    setLoggingOut(true)
+    setLogoutError('')
+    try {
+      const token = currentUser?.token || readAuthToken()
+      if (window.api?.auth?.logout) await window.api.auth.logout(token)
+      writeAuthToken('')
+      setCurrentUser(null)
+      setActiveModule('dashboard')
+      setConfirmLogout(false)
+      setAuthNotice('')
+    } catch (err) {
+      setLogoutError(err?.message || 'Could not sign out. Try again.')
+    } finally {
+      setLoggingOut(false)
     }
-    setCurrentUser(null)
-    setActiveModule('dashboard')
   }
 
   const handlePingTest = async () => {
@@ -307,11 +401,21 @@ export default function App() {
 
   const allowedModules = MODULE_LIST.filter((mod) => hasModuleAccess(mod))
 
-  // If user is not logged in, present secure LoginScreen
+  if (!sessionChecked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#f3f5f8] text-slate-500 text-[15px]">
+        Checking your session...
+      </div>
+    )
+  }
+
   if (!currentUser) {
     return (
       <LoginScreen
+        notice={authNotice}
         onLoginSuccess={(session) => {
+          if (session?.token) writeAuthToken(session.token)
+          setAuthNotice('')
           setCurrentUser(session)
           setActiveModule(homeModuleFor(session))
           loadData()
@@ -374,6 +478,9 @@ export default function App() {
           <div className="text-[13px] font-medium text-slate-800 truncate">
             {currentUser.displayName || currentUser.display_name || currentUser.username}
           </div>
+          <div className="text-[11px] text-slate-400 mt-1">
+            {currentUser.expiresAt ? `Session ends ${formatSessionEnd(currentUser.expiresAt)}` : 'Signed in'}
+          </div>
           <div className="flex items-center justify-between text-[12px] text-slate-500 mt-0.5">
             <span className="truncate flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${ipcStatus === 'connected' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
@@ -389,7 +496,7 @@ export default function App() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-[64px] bg-white border-b border-slate-200 flex items-center justify-between px-5 flex-shrink-0">
+        <header className="relative z-20 h-[64px] bg-white border-b border-slate-200 flex items-center justify-between px-5 flex-shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             {activeModule !== homeModuleFor(currentUser) && (
               <button
@@ -423,7 +530,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
+            <div className="relative flex items-center gap-2 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
               <div className="w-7 h-7 rounded-full bg-orange-600 flex items-center justify-center text-[12px] font-bold text-white">
                 {(currentUser.displayName || currentUser.display_name || currentUser.username || 'U')[0]}
               </div>
@@ -431,12 +538,42 @@ export default function App() {
                 {currentUser.displayName || currentUser.display_name || currentUser.username}
               </span>
               <button
-                onClick={handleLogout}
+                type="button"
+                onClick={() => {
+                  setLogoutError('')
+                  setConfirmLogout((open) => !open)
+                }}
                 title="Sign out"
-                className="p-1 rounded-md hover:bg-rose-50 text-slate-400 hover:text-rose-600"
+                className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-[13px] font-medium"
               >
                 <LogOut className="w-4 h-4" />
+                Sign out
               </button>
+              {confirmLogout && (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="text-[13px] font-semibold text-slate-900">Sign out of this register?</p>
+                  <p className="mt-1 text-[12px] text-slate-500">This ends the session on this computer. The token cannot be used again.</p>
+                  {logoutError && <p className="mt-2 text-[12px] text-rose-600">{logoutError}</p>}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={loggingOut}
+                      onClick={handleLogout}
+                      className="flex-1 rounded-lg bg-rose-600 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+                    >
+                      {loggingOut ? 'Signing out...' : 'Sign out'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loggingOut}
+                      onClick={() => setConfirmLogout(false)}
+                      className="flex-1 rounded-lg bg-slate-100 py-2 text-[13px] font-semibold text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="hidden md:flex items-center gap-1.5 text-[13px] font-medium text-slate-600 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
               <Clock className="w-4 h-4 text-orange-600" />

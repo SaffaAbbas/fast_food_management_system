@@ -4,35 +4,59 @@ import { authRepository } from '../db/repositories/authRepository.js'
 import { dashboardRepository } from '../db/repositories/dashboardRepository.js'
 
 export function registerAuthAndDashboardHandlers() {
-  // Login with Password
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event, credentials) => {
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGIN, async (_event, credentials = {}) => {
     try {
-      if (credentials.pin) {
-        return authRepository.loginWithPin(credentials.pin, credentials.userId, credentials.username)
-      } else if (credentials.username && credentials.password) {
-        return authRepository.loginWithPassword(credentials.username, credentials.password)
-      } else {
-        throw new Error('Must provide PIN or username and password.')
+      const username = credentials?.username
+      const password = credentials?.password
+      if (!username || !password) {
+        throw new Error('Enter your username and password.')
       }
+      return authRepository.loginWithPassword(username, password)
     } catch (err) {
       console.error('[IPC auth:login] Error:', err.message)
       throw err
     }
   })
 
-  // Logout
-  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
-    return authRepository.logout()
+  ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async (_event, token) => {
+    return authRepository.logout(typeof token === 'string' ? token : undefined)
   })
 
-  // Get Current Session
-  ipcMain.handle(IPC_CHANNELS.AUTH_CURRENT_USER, async () => {
+  ipcMain.handle(IPC_CHANNELS.AUTH_CURRENT_USER, async (_event, token) => {
+    if (typeof token === 'string') return authRepository.getCurrentSession(token)
     return authRepository.getCurrentSession()
   })
 
-  // Get users for Quick PIN screen
   ipcMain.handle('auth:get-login-users', async () => {
     return authRepository.getLoginUsers()
+  })
+
+  ipcMain.handle('auth:list-roles', async () => {
+    return authRepository.listRoles()
+  })
+
+  ipcMain.handle('auth:mail-status', async () => {
+    return authRepository.getMailStatus()
+  })
+
+  ipcMain.handle('auth:save-mail-config', async (_event, payload) => {
+    return authRepository.saveMailConfig(payload || {})
+  })
+
+  ipcMain.handle('auth:signup', async (_event, payload) => {
+    return authRepository.signup(payload || {})
+  })
+
+  ipcMain.handle('auth:request-signup', async (_event, payload) => {
+    return authRepository.requestSignup(payload || {})
+  })
+
+  ipcMain.handle('auth:resend-signup-otp', async (_event, payload) => {
+    return authRepository.resendSignupOtp(payload || {})
+  })
+
+  ipcMain.handle('auth:verify-signup', async (_event, payload) => {
+    return authRepository.verifySignupOtp(payload || {})
   })
 
   ipcMain.handle('auth:needs-setup', async () => {
@@ -43,11 +67,15 @@ export function registerAuthAndDashboardHandlers() {
     return authRepository.completeInitialSetup(payload || {})
   })
 
-  // Dashboard Metrics
   ipcMain.handle('dashboard:get-metrics', async (_event, payload = {}) => {
     try {
       const session = authRepository.getCurrentSession()
-      if (!session) throw new Error('Unauthorized: Please sign in.')
+      if (!session) {
+        const state = authRepository.getLastSessionState()
+        if (state === 'expired') throw new Error('Session expired. Please sign in again.')
+        if (state === 'revoked') throw new Error('Your session has ended. Please sign in again.')
+        throw new Error('Unauthorized: Please sign in.')
+      }
       if (session.roleCode !== 'super_admin' && !session.permissions?.includes('dashboard:view')) {
         throw new Error("Unauthorized: Requires 'dashboard:view' permission.")
       }
@@ -63,7 +91,12 @@ export function registerAuthAndDashboardHandlers() {
 
   ipcMain.handle('dashboard:list-branches', async () => {
     const session = authRepository.getCurrentSession()
-    if (!session) throw new Error('Unauthorized: Please sign in.')
+    if (!session) {
+      const state = authRepository.getLastSessionState()
+      if (state === 'expired') throw new Error('Session expired. Please sign in again.')
+      if (state === 'revoked') throw new Error('Your session has ended. Please sign in again.')
+      throw new Error('Unauthorized: Please sign in.')
+    }
     if (session.roleCode !== 'super_admin') {
       return session.branchId
         ? [{ id: session.branchId, name: session.branchName, code: null, currency_symbol: session.currencySymbol }]

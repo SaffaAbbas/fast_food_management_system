@@ -17,6 +17,7 @@ import { migration016 } from './migrations/016_inventory_recipe_ops.js'
 import { migration017 } from './migrations/017_ops_finance_reservations.js'
 import { migration018 } from './migrations/018_promotions_ops.js'
 import { migration019 } from './migrations/019_audit_security.js'
+import { migration020 } from './migrations/020_signup_otp_and_sessions.js'
 
 const MIGRATIONS = [
   migration001,
@@ -38,6 +39,7 @@ const MIGRATIONS = [
   migration017,
   migration018,
   migration019,
+  migration020,
 ]
 
 /**
